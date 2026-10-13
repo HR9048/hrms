@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>File Server — Test Page</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    background: #f4f6f8;
+    margin: 0;
+    padding: 24px;
+    color: #1f2937;
+  }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .sub { color: #6b7280; font-size: 13px; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 1100px; margin: 0 auto; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+    padding: 16px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 14px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  .badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 600; }
+  .badge-public { background: #dcfce7; color: #166534; }
+  .badge-secure { background: #fee2e2; color: #991b1b; }
+  label { display: block; font-size: 12px; font-weight: 600; margin: 10px 0 4px; color: #374151; }
+  input[type=text], input[type=password], input[type=file], select {
+    width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px;
+  }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > * { flex: 1; }
+  button {
+    margin-top: 12px; padding: 8px 14px; border: 0; border-radius: 6px;
+    background: #2563eb; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  button:hover { background: #1d4ed8; }
+  button.secondary { background: #f3f4f6; color: #374151; }
+  button.secondary:hover { background: #e5e7eb; }
+  button.danger { background: #fee2e2; color: #991b1b; }
+  button.danger:hover { background: #fecaca; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  pre {
+    background: #0f172a; color: #e2e8f0; padding: 10px; border-radius: 6px;
+    font-size: 11.5px; overflow-x: auto; margin-top: 10px; white-space: pre-wrap; word-break: break-all;
+  }
+  .files { display: flex; flex-direction: column; gap: 8px; max-width: 1100px; margin: 0 auto; }
+  .file-row {
+    display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid #e5e7eb;
+    border-radius: 8px; padding: 10px 12px;
+  }
+  .file-row .meta { flex: 1; min-width: 0; }
+  .file-row .name { font-size: 13px; font-weight: 600; word-break: break-all; }
+  .file-row .id { font-size: 11px; color: #9ca3af; word-break: break-all; }
+  .thumb { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; background: #f3f4f6; flex-shrink: 0; }
+  .actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .actions button { margin-top: 0; padding: 6px 10px; font-size: 12px; }
+  .status { font-size: 12px; margin-top: 8px; }
+  .status.ok { color: #166534; }
+  .status.err { color: #991b1b; }
+  .empty { text-align: center; color: #9ca3af; font-size: 13px; padding: 20px; }
+</style>
+</head>
+<body>
+
+  <h1>File Server — Test Page</h1>
+  <p class="sub">Served from the file server itself, so no CORS setup is needed here. Values below are saved in this browser only.</p>
+
+  <div class="grid">
+
+    <!-- CONNECTION SETTINGS -->
+    <div class="card">
+      <h2>1. Connection settings</h2>
+      <label>Server base URL</label>
+      <input type="text" id="baseUrl" />
+
+      <label>Upload API key <span style="font-weight:400;color:#9ca3af">(server-to-server key — FileStorage:UploadApiKey)</span></label>
+      <input type="password" id="apiKey" placeholder="paste your UploadApiKey" />
+
+      <label>Bearer token <span style="font-weight:400;color:#9ca3af">(a real login JWT from HrmsBackend — needed to sign secure URLs)</span></label>
+      <input type="password" id="bearerToken" placeholder="paste a login JWT" />
+
+      <button class="secondary" onclick="saveSettings()">Save settings</button>
+      <div id="settingsStatus" class="status"></div>
+    </div>
+
+    <!-- UPLOAD -->
+    <div class="card">
+      <h2>2. Upload a file</h2>
+      <label>File</label>
+      <input type="file" id="fileInput" />
+
+      <label>Type</label>
+      <select id="uploadType">
+        <option value="public">public — no auth, permanent URL</option>
+        <option value="secure">secure — requires a signed URL to view</option>
+      </select>
+
+      <button onclick="uploadFile()">Upload</button>
+      <div id="uploadStatus" class="status"></div>
+      <pre id="uploadResult" style="display:none"></pre>
+    </div>
+
+  </div>
+
+  <!-- UPLOADED FILES -->
+  <div class="card" style="max-width:1100px;margin:0 auto 16px;">
+    <h2>3. Files uploaded this session</h2>
+    <div id="fileList" class="files"><div class="empty">Nothing uploaded yet.</div></div>
+  </div>
+
+  <script>
+    const els = {
+      baseUrl: document.getElementById('baseUrl'),
+      apiKey: document.getElementById('apiKey'),
+      bearerToken: document.getElementById('bearerToken'),
+      settingsStatus: document.getElementById('settingsStatus'),
+      fileInput: document.getElementById('fileInput'),
+      uploadType: document.getElementById('uploadType'),
+      uploadStatus: document.getElementById('uploadStatus'),
+      uploadResult: document.getElementById('uploadResult'),
+      fileList: document.getElementById('fileList')
+    };
+
+    const STORAGE_KEY = 'fileServerTestPageSettings';
+    let files = []; // { fileId, storedFileName, originalFileName, type, url }
+
+    function loadSettings() {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      els.baseUrl.value = saved.baseUrl || window.location.origin;
+      els.apiKey.value = saved.apiKey || '';
+      els.bearerToken.value = saved.bearerToken || '';
+    }
+
+    function saveSettings() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        baseUrl: els.baseUrl.value.trim(),
+        apiKey: els.apiKey.value.trim(),
+        bearerToken: els.bearerToken.value.trim()
+      }));
+      showStatus(els.settingsStatus, 'Saved.', true);
+    }
+
+    function showStatus(el, message, ok) {
+      el.textContent = message;
+      el.className = 'status ' + (ok ? 'ok' : 'err');
+    }
+
+    function base() {
+      return (els.baseUrl.value || '').replace(/\/+$/, '');
+    }
+
+    // Safely reads a response whether it has a JSON body, an empty body
+    // (ASP.NET Core's default for a 401 from failed JWT validation), or
+    // plain text - and surfaces the real reason instead of a cryptic
+    // "Unexpected end of JSON input".
+    async function parseResponse(res) {
+      const text = await res.text();
+      let data = {};
+      if (text) {
+        try { data = JSON.parse(text); } catch { /* not JSON - fall through */ }
+      }
+      if (!res.ok) {
+        const authHeader = res.headers.get('WWW-Authenticate');
+        const detail = data.message || authHeader || text || `HTTP ${res.status} ${res.statusText}`;
+        throw new Error(detail);
+      }
+      return data;
+    }
+
+    async function uploadFile() {
+      const file = els.fileInput.files[0];
+      const type = els.uploadType.value;
+
+      if (!file) return showStatus(els.uploadStatus, 'Choose a file first.', false);
+      if (!els.apiKey.value) return showStatus(els.uploadStatus, 'Upload API key is required.', false);
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        showStatus(els.uploadStatus, 'Uploading...', true);
+        const res = await fetch(`${base()}/api/files/upload?type=${type}`, {
+          method: 'POST',
+          headers: { 'X-Api-Key': els.apiKey.value.trim() },
+          body: formData
+        });
+
+        const data = await parseResponse(res);
+
+        showStatus(els.uploadStatus, `Uploaded as ${type}.`, true);
+        els.uploadResult.style.display = 'block';
+        els.uploadResult.textContent = JSON.stringify(data, null, 2);
+
+        files.unshift(data);
+        renderFileList();
+        els.fileInput.value = '';
+      } catch (err) {
+        showStatus(els.uploadStatus, err.message, false);
+        els.uploadResult.style.display = 'none';
+      }
+    }
+
+    async function signAndView(fileId) {
+      if (!els.bearerToken.value) {
+        alert('Paste a Bearer token first — signing requires being logged in.');
+        return;
+      }
+      try {
+        const res = await fetch(`${base()}/api/files/secure/${fileId}/sign`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${els.bearerToken.value.trim()}` }
+        });
+        const data = await parseResponse(res);
+
+        window.open(data.url, '_blank');
+      } catch (err) {
+        alert('Sign failed: ' + err.message);
+      }
+    }
+
+    async function deleteFile(type, fileId) {
+      if (!els.apiKey.value) {
+        alert('Upload API key is required to delete.');
+        return;
+      }
+      if (!confirm('Delete this file? This cannot be undone.')) return;
+
+      try {
+        const res = await fetch(`${base()}/api/files/${type}/${fileId}`, {
+          method: 'DELETE',
+          headers: { 'X-Api-Key': els.apiKey.value.trim() }
+        });
+        await parseResponse(res);
+
+        files = files.filter((f) => f.fileId !== fileId);
+        renderFileList();
+      } catch (err) {
+        alert('Delete failed: ' + err.message);
+      }
+    }
+
+    function isImage(name) {
+      return /\.(jpe?g|png|gif|webp)$/i.test(name || '');
+    }
+
+    function renderFileList() {
+      if (files.length === 0) {
+        els.fileList.innerHTML = '<div class="empty">Nothing uploaded yet.</div>';
+        return;
+      }
+
+      els.fileList.innerHTML = files.map((f) => {
+        const thumb = f.type === 'public' && isImage(f.storedFileName)
+          ? `<img class="thumb" src="${f.url}" />`
+          : `<div class="thumb"></div>`;
+
+        const viewAction = f.type === 'public'
+          ? `<a href="${f.url}" target="_blank"><button class="secondary">Open</button></a>`
+          : `<button class="secondary" onclick="signAndView('${f.fileId}')">Sign &amp; View</button>`;
+
+        return `
+          <div class="file-row">
+            ${thumb}
+            <div class="meta">
+              <div class="name">${f.originalFileName || f.storedFileName}
+                <span class="badge badge-${f.type}">${f.type}</span>
+              </div>
+              <div class="id">${f.fileId}</div>
+            </div>
+            <div class="actions">
+              ${viewAction}
+              <button class="danger" onclick="deleteFile('${f.type}','${f.fileId}')">Delete</button>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    loadSettings();
+  </script>
+</body>
+</html>

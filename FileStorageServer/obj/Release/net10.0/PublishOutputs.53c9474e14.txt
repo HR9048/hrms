@@ -1,0 +1,14 @@
+C:\xampp\htdocs\proj\hhrms\hrms\FileStorageServer\publish\FileStorageServer.exe
+C:\xampp\htdocs\proj\hhrms\hrms\FileStorageServer\publish\appsettings.json
+C:\xampp\htdocs\proj\hhrms\hrms\FileStorageServer\publish\FileStorageServer.dll
+C:\xampp\htdocs\proj\hhrms\hrms\FileStorageServer\publish\FileStorageServer.deps.json
+C:\xampp\htdocs\proj\hhrms\hrms\FileStorageServer\publish\FileStorageServer.runtimeconfig.json
+C:\xampp\htdocs\proj\hhrms\hrms\FileStorageServer\publish\FileStorageServer.pdb
+C:\xampp\htdocs\proj\hhrms\hrms\FileStorageServer\publish\Microsoft.AspNetCore.Authentication.JwtBearer.dll
+C:\xampp\htdocs\proj\hhrms\hrms\FileStorageServer\publish\Microsoft.IdentityModel.Abstractions.dll
+C:\xampp\htdocs\proj\hhrms\hrms\FileStorageServer\publish\Microsoft.IdentityModel.JsonWebTokens.dll
+C:\xampp\htdocs\proj\hhrms\hrms\FileStorageServer\publish\Microsoft.IdentityModel.Logging.dll
+C:\xampp\htdocs\proj\hhrms\hrms\FileStorageServer\publish\Microsoft.IdentityModel.Protocols.dll
+C:\xampp\htdocs\proj\hhrms\hrms\FileStorageServer\publish\Microsoft.IdentityModel.Protocols.OpenIdConnect.dll
+C:\xampp\htdocs\proj\hhrms\hrms\FileStorageServer\publish\Microsoft.IdentityModel.Tokens.dll
+C:\xampp\htdocs\proj\hhrms\hrms\FileStorageServer\publish\System.IdentityModel.Tokens.Jwt.dll

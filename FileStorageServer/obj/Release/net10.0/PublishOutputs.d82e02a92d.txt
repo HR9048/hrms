@@ -1,0 +1,14 @@
+C:\inetpub\FileStorageServer\FileStorageServer.exe
+C:\inetpub\FileStorageServer\appsettings.json
+C:\inetpub\FileStorageServer\FileStorageServer.dll
+C:\inetpub\FileStorageServer\FileStorageServer.deps.json
+C:\inetpub\FileStorageServer\FileStorageServer.runtimeconfig.json
+C:\inetpub\FileStorageServer\FileStorageServer.pdb
+C:\inetpub\FileStorageServer\Microsoft.AspNetCore.Authentication.JwtBearer.dll
+C:\inetpub\FileStorageServer\Microsoft.IdentityModel.Abstractions.dll
+C:\inetpub\FileStorageServer\Microsoft.IdentityModel.JsonWebTokens.dll
+C:\inetpub\FileStorageServer\Microsoft.IdentityModel.Logging.dll
+C:\inetpub\FileStorageServer\Microsoft.IdentityModel.Protocols.dll
+C:\inetpub\FileStorageServer\Microsoft.IdentityModel.Protocols.OpenIdConnect.dll
+C:\inetpub\FileStorageServer\Microsoft.IdentityModel.Tokens.dll
+C:\inetpub\FileStorageServer\System.IdentityModel.Tokens.Jwt.dll

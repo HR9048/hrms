@@ -1,0 +1,706 @@
+.odfh-page {
+    padding: 24px;
+    background: #f6f8fb;
+    min-height: calc(100vh - 60px);
+}
+
+/* =========================================================
+   HEADER
+========================================================= */
+
+.odfh-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.odfh-title {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.odfh-subtitle {
+    margin: 6px 0 0;
+    color: #6b7280;
+    font-size: 14px;
+}
+
+.odfh-header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.odfh-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 13px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.status-draft { background: #eef2ff; color: #4338ca; }
+.status-unlocked { background: #ecfdf3; color: #047857; }
+.status-locked { background: #fef2f2; color: #b91c1c; }
+.status-pending { background: #fff7ed; color: #c2410c; }
+.status-approved { background: #ecfdf5; color: #047857; }
+
+.odfh-version {
+    font-size: 13px;
+    color: #6b7280;
+}
+
+/* =========================================================
+   APPROVALS BUTTON / BADGE
+========================================================= */
+
+.odfh-approvals-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 14px;
+    border: 1px solid #e5e7eb;
+    border-radius: 20px;
+    background: #ffffff;
+    color: #374151;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.odfh-approvals-btn:hover {
+    border-color: #93c5fd;
+    color: #2563eb;
+}
+
+.odfh-approvals-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: #dc2626;
+    color: #ffffff;
+    font-size: 10.5px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+/* =========================================================
+   APPROVALS MODAL
+========================================================= */
+
+.odfh-approvals-modal { max-width: 520px; }
+
+.odfh-approvals-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 420px;
+    overflow-y: auto;
+    padding-right: 2px;
+}
+
+.odfh-approval-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 13px 14px;
+}
+
+.odfh-approval-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.odfh-approval-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: #eff6ff;
+    color: #2563eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.odfh-approval-name {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: #1f2937;
+}
+
+.odfh-approval-meta {
+    font-size: 11.5px;
+    color: #9ca3af;
+    margin-top: 1px;
+}
+
+.odfh-approval-reason {
+    margin-top: 9px;
+    padding: 9px 11px;
+    background: #f9fafb;
+    border-radius: 8px;
+    font-size: 12.5px;
+    color: #4b5563;
+    line-height: 1.45;
+}
+
+.odfh-approval-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 11px;
+}
+
+/* =========================================================
+   ACTION BAR
+========================================================= */
+
+.odfh-action-bar {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+.odfh-action-left,
+.odfh-action-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.odfh-edit-warning { font-size: 13px; color: #047857; font-weight: 500; }
+.odfh-request-info { font-size: 13px; color: #c2410c; font-weight: 500; }
+
+/* =========================================================
+   INFO
+========================================================= */
+
+.odfh-info { margin-bottom: 16px; }
+
+/* =========================================================
+   CARD
+========================================================= */
+
+.odfh-card {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+}
+
+.odfh-card-header {
+    min-height: 65px;
+    padding: 15px 20px;
+    border-bottom: 1px solid #edf0f4;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.odfh-card-header h5 {
+    margin: 0;
+    color: #1f2937;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.odfh-card-header span {
+    display: block;
+    margin-top: 3px;
+    font-size: 12px;
+    color: #9ca3af;
+}
+
+.odfh-drag-help {
+    color: #6b7280;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+}
+
+/* =========================================================
+   TREE CONTAINER
+========================================================= */
+
+.odfh-tree-container {
+    padding: 20px;
+    min-height: 400px;
+}
+
+/* =========================================================
+   ORG CHART TREE (graphical hierarchy)
+========================================================= */
+
+.odfh-org-tree-scroll {
+    overflow-x: auto;
+    padding: 10px 10px 25px;
+}
+
+.odfh-org-tree {
+    display: flex;
+    justify-content: center;
+    min-width: max-content;
+}
+
+.odfh-org-tree ul {
+    display: flex;
+    padding-top: 34px;
+    position: relative;
+    justify-content: center;
+}
+
+.odfh-org-tree > ul {
+    padding-top: 0;
+}
+
+.odfh-org-tree > ul::before {
+    display: none;
+}
+
+.odfh-org-li {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    list-style: none;
+    position: relative;
+    padding: 34px 14px 0 14px;
+}
+
+.odfh-org-tree > ul > .odfh-org-li {
+    padding-top: 0;
+}
+
+.odfh-org-li::before,
+.odfh-org-li::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 50%;
+    border-top: 2px solid #cbd5e1;
+    width: 50%;
+    height: 34px;
+}
+
+.odfh-org-li::after {
+    right: auto;
+    left: 50%;
+    border-left: 2px solid #cbd5e1;
+}
+
+.odfh-org-li:only-child::after,
+.odfh-org-li:only-child::before {
+    display: none;
+}
+
+.odfh-org-li:only-child {
+    padding-top: 0;
+}
+
+.odfh-org-tree > ul > .odfh-org-li::before,
+.odfh-org-tree > ul > .odfh-org-li::after {
+    display: none;
+}
+
+.odfh-org-li:first-child::before,
+.odfh-org-li:last-child::after {
+    border: 0 none;
+}
+
+.odfh-org-li:last-child::before {
+    border-right: 2px solid #cbd5e1;
+    border-radius: 0 6px 0 0;
+}
+
+.odfh-org-li:first-child::after {
+    border-radius: 6px 0 0 0;
+}
+
+.odfh-org-tree ul ul::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    border-left: 2px solid #cbd5e1;
+    width: 0;
+    height: 34px;
+}
+
+/* NODE BOX */
+
+.odfh-org-box {
+    position: relative;
+    width: 190px;
+    background: #ffffff;
+    border: 1.5px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 13px 13px 32px;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+    transition: all 0.15s ease;
+}
+
+.odfh-org-box[draggable="true"] { cursor: grab; }
+.odfh-org-box[draggable="true"]:active { cursor: grabbing; }
+
+.odfh-org-box:hover {
+    border-color: #93c5fd;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.12);
+}
+
+.odfh-org-box.odfh-dragging { opacity: 0.4; }
+
+.odfh-org-box-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.odfh-org-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: #eff6ff;
+    color: #2563eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.odfh-org-drag { color: #9ca3af; cursor: grab; font-size: 13px; }
+
+.odfh-org-name {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: #1f2937;
+    line-height: 1.3;
+    word-break: break-word;
+    text-align: left;
+}
+
+.odfh-org-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: 11px;
+    color: #9ca3af;
+    text-align: left;
+}
+
+.odfh-org-type {
+    background: #f3f4f6;
+    padding: 1px 6px;
+    border-radius: 4px;
+}
+
+.odfh-org-actions {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 3px;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.odfh-org-box:hover .odfh-org-actions,
+.odfh-org-box:focus-within .odfh-org-actions {
+    opacity: 1;
+}
+
+.odfh-org-actions button {
+    width: 25px;
+    height: 25px;
+    border: 0;
+    border-radius: 6px;
+    background: #f3f4f6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11.5px;
+    color: #374151;
+}
+
+.odfh-org-actions button:hover { background: #e5e7eb; }
+
+.odfh-org-toggle {
+    position: absolute;
+    bottom: -11px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 22px;
+    height: 22px;
+    border: 0;
+    border-radius: 50%;
+    background: #ffffff;
+    color: #2563eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 5px rgba(15, 23, 42, 0.18);
+    font-size: 14px;
+}
+
+/* =========================================================
+   EMPTY STATE
+========================================================= */
+
+.odfh-empty {
+    min-height: 330px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    text-align: center;
+    color: #6b7280;
+    padding: 20px;
+}
+
+.odfh-empty-icon {
+    width: 65px;
+    height: 65px;
+    border-radius: 50%;
+    background: #eff6ff;
+    color: #2563eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    margin-bottom: 15px;
+}
+
+.odfh-empty h5 { color: #374151; margin-bottom: 5px; }
+.odfh-empty p { margin: 0; font-size: 13px; max-width: 380px; }
+
+/* =========================================================
+   LOCKED BANNER
+========================================================= */
+
+.odfh-locked-banner {
+    margin-top: 16px;
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 10px;
+    padding: 14px 17px;
+    display: flex;
+    align-items: center;
+    gap: 13px;
+}
+
+.odfh-lock-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    background: #ffedd5;
+    color: #c2410c;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+}
+
+.odfh-locked-banner strong { color: #9a3412; font-size: 14px; }
+.odfh-locked-banner p { margin: 3px 0 0; color: #7c2d12; font-size: 12px; }
+
+/* =========================================================
+   MODAL (shared)
+========================================================= */
+
+.odfh-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    z-index: 1050;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.odfh-modal {
+    width: 100%;
+    max-width: 550px;
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 15px 45px rgba(15, 23, 42, 0.2);
+    overflow: hidden;
+}
+
+.odfh-modal-header {
+    padding: 18px 20px;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+}
+
+.odfh-modal-header h5 { margin: 0; color: #1f2937; font-size: 17px; }
+.odfh-modal-header span { display: block; margin-top: 4px; font-size: 12px; color: #6b7280; }
+
+.odfh-modal-body { padding: 20px; }
+
+.odfh-modal-footer {
+    padding: 14px 20px;
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+/* =========================================================
+   NODE PICKER MODAL (graphical multi-select add)
+========================================================= */
+
+.odfh-picker-modal { max-width: 660px; }
+
+.odfh-picker-search {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 9px 12px;
+    margin-bottom: 14px;
+    color: #9ca3af;
+}
+
+.odfh-picker-search input {
+    border: 0;
+    outline: none;
+    flex: 1;
+    font-size: 13.5px;
+    color: #1f2937;
+}
+
+.odfh-node-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+    max-height: 360px;
+    overflow-y: auto;
+    padding: 2px 4px 2px 2px;
+}
+
+.odfh-node-card {
+    position: relative;
+    border: 1.5px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 12px 26px 10px 12px;
+    background: #ffffff;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.12s ease;
+}
+
+.odfh-node-card:hover { border-color: #93c5fd; }
+.odfh-node-card.selected { border-color: #2563eb; background: #eff6ff; }
+
+.odfh-node-card-check {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    color: #c7d2e0;
+    font-size: 15px;
+}
+
+.odfh-node-card.selected .odfh-node-card-check { color: #2563eb; }
+
+.odfh-node-card-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: #eff6ff;
+    color: #2563eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.odfh-node-card-name { font-size: 12.5px; font-weight: 600; color: #1f2937; }
+.odfh-node-card-code { font-size: 10.5px; color: #9ca3af; }
+
+.odfh-node-card-type {
+    font-size: 10px;
+    background: #f3f4f6;
+    color: #6b7280;
+    padding: 1px 6px;
+    border-radius: 4px;
+    width: fit-content;
+}
+
+.odfh-picker-empty {
+    text-align: center;
+    padding: 50px 0;
+    color: #9ca3af;
+}
+
+.odfh-picker-empty i { font-size: 26px; }
+.odfh-picker-empty p { margin: 8px 0 0; font-size: 13px; }
+
+.odfh-picker-footer { justify-content: space-between; }
+.odfh-picker-count { font-size: 12.5px; color: #6b7280; }
+.odfh-picker-actions { display: flex; gap: 8px; }
+
+/* =========================================================
+   LOADING
+========================================================= */
+
+.odfh-loading {
+    min-height: 400px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: #6b7280;
+}
+
+/* =========================================================
+   RESPONSIVE
+========================================================= */
+
+@media (max-width: 768px) {
+
+    .odfh-page { padding: 15px; }
+
+    .odfh-header { flex-direction: column; }
+
+    .odfh-header-right { width: 100%; justify-content: space-between; }
+
+    .odfh-action-bar { flex-direction: column; align-items: stretch; }
+
+    .odfh-action-left,
+    .odfh-action-right { flex-wrap: wrap; }
+
+    .odfh-card-header { flex-direction: column; align-items: flex-start; gap: 10px; }
+
+    .odfh-org-box { width: 155px; padding: 11px 11px 28px; }
+
+    .odfh-node-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+}
