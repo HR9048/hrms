@@ -1,4 +1,4 @@
-# HRMS (React + Node.js/Express + MySQL)
+# HRMS (React + ASP.NET + MySQL)
 
 Database-driven HRMS scaffold with:
 - **Exactly two languages at a time**: English is always on. On first deploy you pick ONE more (Hindi, Kannada, or Marathi) — that becomes the system's second language. Only **Super Admin** can change which second language is active afterwards, from `Admin → Language Settings`.
