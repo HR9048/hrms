@@ -1,32 +1,38 @@
 import { useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
-import api from '../api/axios';
+import { getEmployeeAccounts, addEmployeeAccount } from '../api/employeeMaster';
+import { DEFAULT_PASSWORD, MIN_PASSWORD, isEmployeeRole } from '../utils/accountDefaults';
 
 const errMsg = (e) => e?.response?.data?.message || e?.message || 'Something went wrong.';
 const pick = (o, a, b) => o?.[a] ?? o?.[b];
+const blank = () => ({ roleId: '', username: '', password: DEFAULT_PASSWORD });
 
-export default function EmployeeAccounts({ employeeId, roles = [], canAdd }) {
+export default function EmployeeAccounts({ employeeId, employeeCode, roles = [], canAdd }) {
   const [rows, setRows] = useState(null);
-  const [form, setForm] = useState({ roleId: '', username: '', password: '' });
+  const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
 
-  const load = () =>
-    api.get(`/employees/${employeeId}/accounts`).then((r) => setRows(r.data)).catch(() => setRows([]));
-
+  const load = () => getEmployeeAccounts(employeeId).then(setRows).catch(() => setRows([]));
   useEffect(() => { load(); }, [employeeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const role = roles.find((r) => String(r.id) === String(form.roleId));
+  const usesCode = isEmployeeRole(role);
+  const hasRole = (r) => (rows || []).some((a) => String(pick(a, 'role_code', 'roleCode') || '').toUpperCase() === String(r.code || '').toUpperCase());
 
   async function add(e) {
     e.preventDefault();
-    if (!form.roleId || !form.username.trim() || form.password.length < 8) {
-      Swal.fire('Check the form', 'Choose a role, enter a username and a password of at least 8 characters.', 'warning');
-      return;
-    }
+    if (!role) { Swal.fire('Check the form', 'Choose a role.', 'warning'); return; }
+    if (!usesCode && !form.username.trim()) { Swal.fire('Check the form', 'Enter a username.', 'warning'); return; }
+    if (form.password.length < MIN_PASSWORD) { Swal.fire('Check the form', `The password needs at least ${MIN_PASSWORD} characters.`, 'warning'); return; }
+
     setSaving(true);
     try {
-      await api.post(`/employees/${employeeId}/accounts`, {
-        roleId: Number(form.roleId), username: form.username.trim(), password: form.password, isDefault: false
+      await addEmployeeAccount(employeeId, {
+        roleId: Number(form.roleId),
+        username: usesCode ? null : form.username.trim(),
+        password: form.password
       });
-      setForm({ roleId: '', username: '', password: '' });
+      setForm(blank());
       load();
     } catch (err) {
       Swal.fire('Unable to add account', errMsg(err), 'error');
@@ -61,21 +67,23 @@ export default function EmployeeAccounts({ employeeId, roles = [], canAdd }) {
       </div>
 
       {canAdd && (
-        <form className="card-footer row g-2 align-items-end" onSubmit={add}>
+        <form className="card-footer row g-2 align-items-start" onSubmit={add}>
           <div className="col-md-3">
             <select className="form-select form-select-sm" value={form.roleId} onChange={(e) => setForm({ ...form, roleId: e.target.value })}>
               <option value="">Role…</option>
-              {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              {roles.map((r) => <option key={r.id} value={r.id} disabled={hasRole(r)}>{r.name}{hasRole(r) ? ' (already has)' : ''}</option>)}
             </select>
           </div>
           <div className="col-md-3">
-            <input className="form-control form-control-sm" placeholder="Username" autoComplete="off" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
+            {usesCode
+              ? <input className="form-control form-control-sm" disabled value={employeeCode || 'Employee code'} />
+              : <input className="form-control form-control-sm" placeholder="Username" autoComplete="off" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />}
           </div>
           <div className="col-md-3">
-            <input type="password" className="form-control form-control-sm" placeholder="Password (min 8)" autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+            <input className="form-control form-control-sm" placeholder={`Password (min ${MIN_PASSWORD})`} autoComplete="off" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           </div>
           <div className="col-md-3">
-            <button className="btn btn-sm btn-outline-primary" disabled={saving}>{saving ? 'Adding…' : '+ Add another account'}</button>
+            <button className="btn btn-sm btn-outline-primary" disabled={saving}>{saving ? 'Adding…' : '+ Add account'}</button>
           </div>
         </form>
       )}

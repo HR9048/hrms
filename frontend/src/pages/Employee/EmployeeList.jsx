@@ -2,14 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { getMaster, getLookups, listEmployees, exportEmployees } from '../../api/employeeMaster';
-import OrgNodeSelect from '../../components/OrgNodeSelect';
+import OrgNodePicker from '../../components/OrgNodePicker';
 import usePageAccess from '../../hooks/usePageAccess';
 
-// ---- adjust to your route paths ----
+// ---- route paths ----
 const NEW_PATH = '/employee/add';
 const editPath = (id) => `/employee/${id}/edit`;
-// ------------------------------------
-console.log(editPath(123)); // Example usage
+// ---------------------
+
 const FIXED = ['employee_code', 'first_name', 'last_name', 'status'];
 const SIZES = [10, 25, 50, 100];
 const errMsg = (e) => e?.response?.data?.message || e?.message || 'Something went wrong.';
@@ -20,23 +20,23 @@ export default function EmployeeList() {
     const [sp, setSp] = useSearchParams();
     const spRef = useRef(sp);
     spRef.current = sp;
+    const { canEdit } = usePageAccess();
 
     const [master, setMaster] = useState(null);
     const [lookups, setLookups] = useState(null);
     const [data, setData] = useState({ total: 0, items: [] });
     const [loading, setLoading] = useState(false);
-    const {canView, canAdd, canEdit, canDelete} = usePageAccess();
+
     // filters live in the URL so Back from the edit page restores the exact view
     const page = Math.max(1, Number(sp.get('page')) || 1);
     const pageSize = SIZES.includes(Number(sp.get('size'))) ? Number(sp.get('size')) : 25;
-    const q = sp.get('q') || '';
+    const org = sp.get('org') || '';
     const node = sp.get('node') || '';
     const dept = sp.get('dept') || '';
     const desig = sp.get('desig') || '';
     const status = sp.get('status') || '';
-    const sort = sp.get('sort') || 'employee_code';
+    const sort = sp.get('sort') || (node || org ? 'org' : 'employee_code'); // node order when filtered by an organization / unit
     const dir = sp.get('dir') === 'desc' ? 'desc' : 'asc';
-    const [qInput, setQInput] = useState(q);
 
     function update(patch) {
         const next = new URLSearchParams(spRef.current);
@@ -51,20 +51,15 @@ export default function EmployeeList() {
             .catch((e) => Swal.fire('Unable to load', errMsg(e), 'error'));
     }, []);
 
-    useEffect(() => {
-        const t = setTimeout(() => { if (qInput !== q) update({ q: qInput }); }, 400);
-        return () => clearTimeout(t);
-    }, [qInput]); // eslint-disable-line react-hooks/exhaustive-deps
-
     const filterParams = useMemo(() => {
         const p = { sort, dir };
-        if (q) p.search = q;
+        if (org) p.orgId = org;
         if (node) p.nodeId = node;
         if (dept) p.departmentId = dept;
         if (desig) p.designationId = desig;
         if (status) p.status = status;
         return p;
-    }, [q, node, dept, desig, status, sort, dir]);
+    }, [org, node, dept, desig, status, sort, dir]);
 
     const finalized = !!master?.sections.find((s) => s.key === 'basic')?.isFinalized;
 
@@ -115,8 +110,8 @@ export default function EmployeeList() {
         }
     }
 
-    const clearFilters = () => { setQInput(''); setSp(new URLSearchParams(), { replace: true }); };
-    const hasFilters = q || node || dept || desig || status;
+    const clearFilters = () => setSp(new URLSearchParams(), { replace: true });
+    const hasFilters = org || node || dept || desig || status;
 
     const Th = ({ id, children }) => (
         <th role="button" className="text-nowrap user-select-none" onClick={() => toggleSort(id)}>
@@ -136,6 +131,8 @@ export default function EmployeeList() {
 
     const from = data.total === 0 ? 0 : (page - 1) * pageSize + 1;
     const to = Math.min(page * pageSize, data.total);
+    const scopeInfo = lookups.scope;
+    const unassigned = !!scopeInfo && !scopeInfo.unrestricted && scopeInfo.homeNodeId == null;
 
     return (
         <div className="container-fluid py-3">
@@ -143,44 +140,60 @@ export default function EmployeeList() {
                 <h5 className="mb-0">Employees</h5>
                 <span className="badge text-bg-light">{data.total.toLocaleString()}</span>
                 <div className="ms-auto d-flex gap-2">
-                    {canView && (
-                        <button className="btn btn-outline-secondary btn-sm" onClick={doExport}><i className="bi bi-filetype-csv me-1" />Export</button>
-                    )}
-                    {canAdd && (
-                        <button className="btn btn-primary btn-sm" onClick={() => navigate(NEW_PATH)}><i className="bi bi-plus-lg me-1" />Add employee</button>
-                    )}
+                    <button className="btn btn-outline-secondary btn-sm" onClick={doExport}><i className="bi bi-filetype-csv me-1" />Export</button>
+                    <button className="btn btn-primary btn-sm" onClick={() => navigate(NEW_PATH)}><i className="bi bi-plus-lg me-1" />Add employee</button>
                 </div>
             </div>
-
+            {unassigned && (
+                <div className="alert alert-warning small">
+                    Your login isn't assigned to an organization node, so no employees are visible to you.
+                    Ask an administrator to assign your employee record to a node (Employees → open your record → Organization).
+                </div>
+            )}
+            {scopeInfo && !scopeInfo.unrestricted && scopeInfo.homeNodeId != null && (
+                <div className="small text-muted mb-2">
+                    <i className="bi bi-diagram-3 me-1" />
+                    You can see employees of your node{scopeInfo.nodeCount > 1 ? ` and ${scopeInfo.nodeCount - 1} node(s) below it` : ' only'}.
+                </div>
+            )}
             <div className="card mb-3">
-                <div className="card-body py-2 row g-2 align-items-center">
-                    <div className="col-lg-3">
-                        <input className="form-control form-control-sm" placeholder="Search code, name and searchable fields…" value={qInput} onChange={(e) => setQInput(e.target.value)} />
-                    </div>
-                    <div className="col-lg-3">
-                        <OrgNodeSelect lookups={lookups} value={node} onChange={(v) => update({ node: v })} />
-                    </div>
-                    <div className="col-lg-2">
-                        <select className="form-select form-select-sm" value={dept} onChange={(e) => update({ dept: e.target.value })}>
-                            <option value="">All departments</option>
-                            {lookups.departments.map((o) => <option key={o.id} value={o.id}>{o.name}{o.active === 0 ? ' (inactive)' : ''}</option>)}
-                        </select>
-                    </div>
-                    <div className="col-lg-2">
-                        <select className="form-select form-select-sm" value={desig} onChange={(e) => update({ desig: e.target.value })}>
-                            <option value="">All designations</option>
-                            {lookups.designations.map((o) => <option key={o.id} value={o.id}>{o.name}{o.active === 0 ? ' (inactive)' : ''}</option>)}
-                        </select>
-                    </div>
-                    <div className="col-lg-1">
-                        <select className="form-select form-select-sm" value={status} onChange={(e) => update({ status: e.target.value })}>
-                            <option value="">Status</option>
-                            <option value="ACTIVE">Active</option>
-                            <option value="INACTIVE">Inactive</option>
-                        </select>
-                    </div>
-                    <div className="col-lg-1 text-end">
-                        {hasFilters && <button className="btn btn-link btn-sm p-0" onClick={clearFilters}>Clear</button>}
+                <div className="card-body py-3">
+                    {/* organization selects (same picker as Add employee) */}
+                    <OrgNodePicker
+                        filter
+                        lookups={lookups}
+                        value={node ? Number(node) : null}
+                        orgId={org}
+                        onChange={(nodeId, orgId) => update({ node: nodeId ?? '', org: nodeId ? '' : orgId ?? '' })}
+                    />
+
+                    {/* department / designation / status */}
+                    <div className="row g-2 align-items-end mt-1">
+                        <div className="col-md-4">
+                            <label className="form-label small fw-semibold mb-1">Department</label>
+                            <select className="form-select" value={dept} onChange={(e) => update({ dept: e.target.value })}>
+                                <option value="">All departments</option>
+                                {lookups.departments.map((o) => <option key={o.id} value={o.id}>{o.name}{o.active === 0 ? ' (inactive)' : ''}</option>)}
+                            </select>
+                        </div>
+                        <div className="col-md-4">
+                            <label className="form-label small fw-semibold mb-1">Designation</label>
+                            <select className="form-select" value={desig} onChange={(e) => update({ desig: e.target.value })}>
+                                <option value="">All designations</option>
+                                {lookups.designations.map((o) => <option key={o.id} value={o.id}>{o.name}{o.active === 0 ? ' (inactive)' : ''}</option>)}
+                            </select>
+                        </div>
+                        <div className="col-md-2">
+                            <label className="form-label small fw-semibold mb-1">Status</label>
+                            <select className="form-select" value={status} onChange={(e) => update({ status: e.target.value })}>
+                                <option value="">All</option>
+                                <option value="ACTIVE">Active</option>
+                                <option value="INACTIVE">Inactive</option>
+                            </select>
+                        </div>
+                        <div className="col-md-2 text-end">
+                            {hasFilters && <button className="btn btn-link btn-sm" onClick={clearFilters}>Clear filters</button>}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -192,7 +205,7 @@ export default function EmployeeList() {
                             <tr>
                                 <Th id="employee_code">Code</Th>
                                 <Th id="name">Name</Th>
-                                <th className="text-nowrap">Organization</th>
+                                <Th id="org">Organization</Th>
                                 {listCols.map((f) => (sortable(f) ? <Th key={f.id} id={`f${f.id}`}>{f.label}</Th> : <th key={f.id} className="text-nowrap">{f.label}</th>))}
                                 <Th id="status">Status</Th>
                                 <th style={{ width: 60 }} />
@@ -200,7 +213,11 @@ export default function EmployeeList() {
                         </thead>
                         <tbody>
                             {data.items.map((e) => (
-                                <tr key={e.employeeId} role={canEdit ? 'button' : undefined} onClick={canEdit ? () => navigate(editPath(e.employeeId), { state: { from: location.pathname + location.search } }) : undefined}>
+                                <tr
+                                    key={e.employeeId}
+                                    role={canEdit ? 'button' : undefined}
+                                    onClick={canEdit ? () => navigate(editPath(e.employeeId), { state: { from: location.pathname + location.search } }) : undefined}
+                                >
                                     <td className="text-nowrap">{e.employeeCode}</td>
                                     <td>{e.firstName} {e.lastName}</td>
                                     <td className="small text-truncate" style={{ maxWidth: 280 }} title={e.orgNodeId ? pathOf(e.orgNodeId) : ''}>

@@ -24,10 +24,12 @@ public class ScopedNode
     public int Id { get; set; }
     public int OrgId { get; set; }
     public int? TypeId { get; set; }
-    public int? ParentId { get; set; }   // null when the parent is outside the user's scope
+    public int? ParentId { get; set; }   // parent in the ORGANIZATION hierarchy (null when it is the top of what the user can reach)
     public string Name { get; set; } = "";
     public string? Code { get; set; }
-    public bool IsRoot { get; set; }     // true only for the real top node of an organization
+    public bool IsRoot { get; set; }     // the real top node of an organization
+    public bool IsHome { get; set; }     // the logged-in user's own node
+    public bool Selectable { get; set; } = true; // false = a parent (e.g. a Unit) kept only so the dropdowns can navigate to allowed nodes
 }
 
 public class OrgLookups
@@ -39,8 +41,9 @@ public class OrgLookups
 }
 
 /// <summary>
-/// Data-flow visibility: a user sees their own organization node plus every node below it in
-/// master_organization_data_flow. Siblings and unrelated nodes are never visible.
+/// Data-flow visibility: a user may use their own organization node plus every node below it in
+/// master_organization_data_flow. The data flow only decides WHICH nodes are allowed; the dropdowns
+/// themselves follow the organization hierarchy (Organization -> Unit -> Workplace).
 /// Usage in any controller:
 ///   var scope = await DataScope.ForUserAsync(conn, User, employeeId);
 ///   WHERE ... AND {DataScope.Clause(scope, "m.node_id")}      // or scope.Contains(nodeId)
@@ -116,34 +119,25 @@ public static class DataScope
         return result;
     }
 
-    // "this node and everything below it", limited to what the user may see.
-    // Unrestricted users also get the organization-hierarchy children, so picking any node in the hierarchy works for them.
+    // "this node and everything below it in the ORGANIZATION hierarchy" (the tree the dropdowns show),
+    // cut back to what the user may use. Picking a Unit therefore means every allowed workplace of that Unit.
     public static async Task<List<int>> SubtreeAsync(IDbConnection c, int rootId, DataScopeInfo scope)
     {
-        var set = await FlowDescendantsAsync(c, new[] { rootId });
-        set.Add(rootId);
+        var nodes = (await c.QueryAsync<NodeRow>(
+            "SELECT node_id AS Id, parent_node_id AS ParentId FROM master_organization_nodes WHERE deleted_at IS NULL")).ToList();
+        var children = nodes.Where(n => n.ParentId != null).GroupBy(n => n.ParentId!.Value).ToDictionary(g => g.Key, g => g.Select(x => x.Id).ToList());
 
-        if (scope.Unrestricted)
+        var set = new HashSet<int>();
+        var stack = new Stack<int>();
+        stack.Push(rootId);
+        while (stack.Count > 0)
         {
-            var nodes = (await c.QueryAsync<NodeRow>(
-                "SELECT node_id AS Id, parent_node_id AS ParentId FROM master_organization_nodes WHERE deleted_at IS NULL")).ToList();
-            var children = nodes.Where(n => n.ParentId != null).GroupBy(n => n.ParentId!.Value).ToDictionary(g => g.Key, g => g.Select(x => x.Id).ToList());
+            var id = stack.Pop();
+            if (!set.Add(id)) continue;
+            if (children.TryGetValue(id, out var kids)) foreach (var k in kids) stack.Push(k);
+        }
 
-            var stack = new Stack<int>();
-            stack.Push(rootId);
-            var seen = new HashSet<int>();
-            while (stack.Count > 0)
-            {
-                var id = stack.Pop();
-                if (!seen.Add(id)) continue;
-                set.Add(id);
-                if (children.TryGetValue(id, out var kids)) foreach (var k in kids) stack.Push(k);
-            }
-        }
-        else
-        {
-            set.IntersectWith(scope.NodeIds);
-        }
+        if (!scope.Unrestricted) set.IntersectWith(scope.NodeIds);
         return set.ToList();
     }
 
@@ -176,19 +170,39 @@ public static class DataScope
             SELECT node_id AS Id, organization_id AS OrgId, node_type_id AS TypeId, parent_node_id AS ParentId,
                    node_name AS Name, node_code AS Code
             FROM master_organization_nodes WHERE deleted_at IS NULL ORDER BY display_order, node_name")).ToList();
+        var byId = all.ToDictionary(n => n.Id);
 
-        var visible = all.Where(n => scope.Contains(n.Id)).ToList();
-        var visibleIds = visible.Select(n => n.Id).ToHashSet();
+        // nodes the user may actually use (their data scope)
+        var selectable = all.Where(n => scope.Contains(n.Id)).Select(n => n.Id).ToHashSet();
 
-        var nodes = visible.Select(n => new ScopedNode
+        // plus the ancestors of those nodes (the Unit, the organization root), so Organization -> Unit -> Workplace keeps its shape.
+        // Ancestors outside the scope are for navigation only; their other children stay hidden.
+        var shown = new HashSet<int>(selectable);
+        if (!scope.Unrestricted)
+        {
+            foreach (var id in selectable)
+            {
+                var cur = byId[id].ParentId;
+                var guard = 0;
+                while (cur != null && byId.TryGetValue(cur.Value, out var parent) && guard++ < 50)
+                {
+                    shown.Add(parent.Id);
+                    cur = parent.ParentId;
+                }
+            }
+        }
+
+        var nodes = all.Where(n => shown.Contains(n.Id)).Select(n => new ScopedNode
         {
             Id = n.Id,
             OrgId = n.OrgId,
             TypeId = n.TypeId,
-            ParentId = n.ParentId != null && visibleIds.Contains(n.ParentId.Value) ? n.ParentId : null,
+            ParentId = n.ParentId != null && shown.Contains(n.ParentId.Value) ? n.ParentId : null,
             Name = n.Name,
             Code = n.Code,
-            IsRoot = n.ParentId == null
+            IsRoot = n.ParentId == null,
+            IsHome = scope.HomeNodeId == n.Id,
+            Selectable = selectable.Contains(n.Id)
         }).ToList();
 
         var orgs = (await c.QueryAsync<IdName>($"SELECT {org.IdCol} AS Id, {org.NameCol} AS Name FROM {org.Table} ORDER BY {org.NameCol}")).ToList();
@@ -200,7 +214,7 @@ public static class DataScope
 
         return new OrgLookups
         {
-            Scope = new { unrestricted = scope.Unrestricted, homeNodeId = scope.HomeNodeId },
+            Scope = new { unrestricted = scope.Unrestricted, homeNodeId = scope.HomeNodeId, nodeCount = scope.NodeIds.Count },
             Organizations = orgs,
             NodeTypes = (await c.QueryAsync<IdName>($"SELECT {typ.IdCol} AS Id, {typ.NameCol} AS Name FROM {typ.Table} ORDER BY {typ.NameCol}")).ToList(),
             Nodes = nodes

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, matchPath } from 'react-router-dom';
+import { SUB_ROUTES } from '../hooks/usePageAccess';
 import { ChevronLeft, ChevronRight, LogOut, Menu, X } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -107,20 +108,37 @@ export default function Navbar({ children }) {
     return cleanPath || '/';
   }
 
-  function findPermission(path) {
+    function findPermission(path) {
     const currentPath = normalizePath(path);
 
     if (!currentPath) {
       return null;
     }
 
+    const same = (a, b) => normalizePath(a).toLowerCase() === normalizePath(b).toLowerCase();
+
     // First try exact route match
-    const exactMatch = access.find(
-      (item) => normalizePath(item.route_path) === currentPath
-    );
+    const exactMatch = access.find((item) => same(item.route_path, currentPath));
 
     if (exactMatch) {
       return exactMatch;
+    }
+
+    // Declared sub-pages (not menu items), e.g. /employee/15/edit: access comes from their parent menu page
+    // (the list lives in hooks/usePageAccess.js). They need can_view AND the permission the sub-page declares.
+    const sub = SUB_ROUTES.find((r) => matchPath({ path: r.path, end: true, caseSensitive: false }, currentPath));
+    if (sub) {
+      const parent = access.find((item) => same(item.route_path, sub.parent));
+
+      if (account?.roleCode === 'SUPERADMIN') {
+        return { ...(parent || {}), can_view: 1 };
+      }
+      if (!parent) {
+        return null;
+      }
+
+      const allowed = Number(parent.can_view) === 1 && Number(parent[sub.requires]) === 1;
+      return { ...parent, can_view: allowed ? 1 : 0 };
     }
 
     // Support child/dynamic routes such as:

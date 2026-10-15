@@ -26,8 +26,14 @@ public class EmployeeMasterController : ControllerBase
 
     private const string AdminRole = "SUPERADMIN";
 
-    // roles that may create login accounts together with an employee (only SUPERADMIN may grant the SUPERADMIN role)
-    private static readonly HashSet<string> AccountAdminRoles = new(StringComparer.OrdinalIgnoreCase) { "SUPERADMIN", "HR" };
+    // Logins can be created by SUPERADMIN and by any role with the EDIT permission on one of these menu pages
+    // (matched against menus.route_path). Only SUPERADMIN may grant the SUPERADMIN role.
+    private const string AddPageRoute = "/employee/add";
+    private const string ListPageRoute = "/employee/All";
+
+    // role_code of the plain employee role: its login username is the employee code
+    private const string EmployeeRoleCode = "EMPLOYEE";
+    private const int MinPasswordLength = 6;
 
     // menu_key of your Employee page in `menus`; null = any logged-in user may use the employee endpoints
     private static readonly string? EmployeeMenuKey = null;
@@ -169,6 +175,8 @@ public class EmployeeMasterController : ControllerBase
         public int? DepartmentId { get; set; }
         public int? DesignationId { get; set; }
         public string? Status { get; set; }
+
+        public int? OrgId { get; set; }
     }
 
     public record OptionItem(string Value, string Label);
@@ -187,6 +195,9 @@ public class EmployeeMasterController : ControllerBase
     public record OrderInput(List<int> Ids);
 
     public record AccountInput(int? RoleId, string? Username, string? Password);
+
+    public record AddAccountRequest(int? RoleId, string? Username, string? Password);
+    private record AccountPlan(int Index, int RoleId, string? Username, string Password, bool UseEmployeeCode);
 
     public class OrgInput { public int? NodeId { get; set; } public string? EffectiveFrom { get; set; } }
 
@@ -290,7 +301,20 @@ public class EmployeeMasterController : ControllerBase
     private long CurrentUserId() => Convert.ToInt64(this.GetAuthUser()!.EmployeeId);
     private string? CurrentRole() => User.FindFirst("roleCode")?.Value;
     private bool IsSuperAdmin() => string.Equals(CurrentRole(), "SUPERADMIN", StringComparison.OrdinalIgnoreCase);
-    private bool CanManageAccounts() => CurrentRole() != null && AccountAdminRoles.Contains(CurrentRole()!);
+    // SUPERADMIN, or a role with EDIT permission on the employee add/list page
+    private async Task<bool> CanManageAccountsAsync(IDbConnection c)
+    {
+        if (IsSuperAdmin()) return true;
+
+        var roleId = this.GetAuthUser()!.RoleId;
+        var n = await c.ExecuteScalarAsync<int>(@"
+            SELECT COUNT(*)
+            FROM menus m
+            JOIN role_menu_permissions rmp ON rmp.menu_id = m.id AND rmp.role_id = @roleId
+            WHERE m.is_active = 1 AND rmp.can_edit = 1 AND LOWER(m.route_path) IN (@r1, @r2)",
+            new { roleId, r1 = AddPageRoute.ToLowerInvariant(), r2 = ListPageRoute.ToLowerInvariant() });
+        return n > 0;
+    }
     private Task<DataScopeInfo> ScopeAsync(IDbConnection c) => DataScope.ForUserAsync(c, User, CurrentUserId());
 
     // 404 when the employee does not exist, 403 when it sits outside the caller's data scope
@@ -332,7 +356,7 @@ public class EmployeeMasterController : ControllerBase
             nodes = org.Nodes,
             scope = org.Scope,
             roles,
-            me = new { canManageAccounts = CanManageAccounts(), isSuperAdmin = IsSuperAdmin() }
+            me = new { canManageAccounts = await CanManageAccountsAsync(c), isSuperAdmin = IsSuperAdmin() }
         };
     });
 
@@ -456,6 +480,47 @@ public class EmployeeMasterController : ControllerBase
             return new { message = "Saved." };
         });
     }
+
+    // GET employees/{id}/accounts - logins of one employee (needs edit access on the employee pages)
+    [HttpGet("employees/{id:long}/accounts")]
+    public Task<IActionResult> GetAccounts(long id)
+        => Run(async c =>
+        {
+            await EnsureAccessAsync(c, await ScopeAsync(c), id);
+            if (!await CanManageAccountsAsync(c)) throw new MasterException("You do not have permission to view login accounts.", 403);
+
+            return (await c.QueryAsync(@"
+                SELECT ua.id, ua.username, ua.is_active, ua.is_default, r.role_code, r.role_name
+                FROM user_accounts ua JOIN roles r ON r.id = ua.role_id
+                WHERE ua.employee_id = @id", new { id })).ToDictList();
+        });
+
+    // POST employees/{id}/accounts - add ONE more login to an existing employee
+    [HttpPost("employees/{id:long}/accounts")]
+    public Task<IActionResult> AddAccount(long id, [FromBody] AddAccountRequest body)
+        => Run(async c =>
+        {
+            await RequirePermissionAsync(c, "can_edit");
+            await EnsureAccessAsync(c, await ScopeAsync(c), id);
+
+            var errors = new Dictionary<string, string>();
+            var plans = await ValidateAccountsAsync(c, new List<AccountInput> { new(body.RoleId, body.Username, body.Password) },
+                await CanManageAccountsAsync(c), IsSuperAdmin(), errors);
+
+            if (plans.Count == 1 && await c.ExecuteScalarAsync<int>(
+                    "SELECT COUNT(*) FROM user_accounts WHERE employee_id=@id AND role_id=@roleId", new { id, roleId = plans[0].RoleId }) > 0)
+                errors["accounts.0.roleId"] = "This employee already has a login for that role.";
+
+            if (errors.Count > 0) throw new MasterException(errors.Values.First(), 422, errors);
+
+            var code = await c.ExecuteScalarAsync<string>("SELECT employee_code FROM employee_master WHERE employee_id=@id", new { id }) ?? "";
+            var hasAny = await c.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM user_accounts WHERE employee_id=@id", new { id }) > 0;
+
+            using var tx = c.BeginTransaction();
+            await InsertAccountsAsync(c, tx, id, code, plans, firstIsDefault: !hasAny);
+            tx.Commit();
+            return new { message = "Account added." };
+        });
 
     // =========================================================
     // READ HELPERS
@@ -954,24 +1019,24 @@ public class EmployeeMasterController : ControllerBase
         switch (f.DataType)
         {
             case "DROPDOWN":
-            {
-                var s = Convert.ToString(v, inv);
-                return ParseOptions(f.OptionsJson).FirstOrDefault(o => o.Value == s)?.Label ?? s;
-            }
+                {
+                    var s = Convert.ToString(v, inv);
+                    return ParseOptions(f.OptionsJson).FirstOrDefault(o => o.Value == s)?.Label ?? s;
+                }
             case "BOOLEAN":
-            {
-                var b = Convert.ToString(v, inv);
-                return b is "1" or "True" or "true" ? "Yes" : "No";
-            }
+                {
+                    var b = Convert.ToString(v, inv);
+                    return b is "1" or "True" or "true" ? "Yes" : "No";
+                }
             case "DATE":
                 return v is DateTime dt ? dt.ToString("yyyy-MM-dd") : v is DateOnly d ? d.ToString("yyyy-MM-dd") : Convert.ToString(v, inv);
             case "DECIMAL":
                 return v is decimal m ? m.ToString("F2", inv) : Convert.ToString(v, inv);
             case "FILE":
-            {
-                var (id, name) = FileParts(Convert.ToString(v, inv));
-                return id == null ? null : string.IsNullOrEmpty(name) ? "File" : name;
-            }
+                {
+                    var (id, name) = FileParts(Convert.ToString(v, inv));
+                    return id == null ? null : string.IsNullOrEmpty(name) ? "File" : name;
+                }
             default:
                 return Convert.ToString(v, inv);
         }
@@ -1014,10 +1079,10 @@ public class EmployeeMasterController : ControllerBase
             case "BOOLEAN":
                 return Convert.ToInt32(v) == 1;
             case "FILE":
-            {
-                var (id, name) = FileParts(Convert.ToString(v));
-                return id == null ? null : new { fileId = id, fileName = string.IsNullOrEmpty(name) ? "File" : name };
-            }
+                {
+                    var (id, name) = FileParts(Convert.ToString(v));
+                    return id == null ? null : new { fileId = id, fileName = string.IsNullOrEmpty(name) ? "File" : name };
+                }
             default:
                 return v;
         }
@@ -1036,48 +1101,48 @@ public class EmployeeMasterController : ControllerBase
             case "TEXT":
             case "EMAIL":
             case "PHONE":
-            {
-                if (f.DataType == "TEXT") raw = SpacesRx.Replace(raw, " ");   // "John   Smith" -> "John Smith"
-                if (f.DataType == "EMAIL") raw = raw.ToLowerInvariant();
+                {
+                    if (f.DataType == "TEXT") raw = SpacesRx.Replace(raw, " ");   // "John   Smith" -> "John Smith"
+                    if (f.DataType == "EMAIL") raw = raw.ToLowerInvariant();
 
-                var max = f.DataType == "EMAIL" ? 150 : f.DataType == "PHONE" ? 20 : f.MaxLength ?? 100;
-                if (raw.Length > max) return (false, null, $"Maximum {max} characters.");
-                if (rl.MinLength is int minLen && raw.Length < minLen) return (false, null, $"Minimum {minLen} characters.");
-                if (f.DataType == "EMAIL" && !EmailRx.IsMatch(raw)) return (false, null, "Enter a valid email address.");
-                if (f.DataType == "PHONE" && !PhoneRx.IsMatch(raw)) return (false, null, "Enter a valid phone number.");
-                if (!string.IsNullOrEmpty(f.ValidationRegex) && !MatchesFormat(f.ValidationRegex, raw))
-                    return (false, null, string.IsNullOrEmpty(f.FormatHint) ? "Invalid format." : $"Invalid format. Expected: {f.FormatHint}");
-                return (true, raw, null);
-            }
+                    var max = f.DataType == "EMAIL" ? 150 : f.DataType == "PHONE" ? 20 : f.MaxLength ?? 100;
+                    if (raw.Length > max) return (false, null, $"Maximum {max} characters.");
+                    if (rl.MinLength is int minLen && raw.Length < minLen) return (false, null, $"Minimum {minLen} characters.");
+                    if (f.DataType == "EMAIL" && !EmailRx.IsMatch(raw)) return (false, null, "Enter a valid email address.");
+                    if (f.DataType == "PHONE" && !PhoneRx.IsMatch(raw)) return (false, null, "Enter a valid phone number.");
+                    if (!string.IsNullOrEmpty(f.ValidationRegex) && !MatchesFormat(f.ValidationRegex, raw))
+                        return (false, null, string.IsNullOrEmpty(f.FormatHint) ? "Invalid format." : $"Invalid format. Expected: {f.FormatHint}");
+                    return (true, raw, null);
+                }
             case "NUMBER":
-            {
-                if (!long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)) return (false, null, "Enter a whole number.");
-                if (rl.Min is decimal mn && n < mn) return (false, null, $"Must be at least {mn:0.##}.");
-                if (rl.Max is decimal mx && n > mx) return (false, null, $"Must be at most {mx:0.##}.");
-                return (true, n, null);
-            }
+                {
+                    if (!long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)) return (false, null, "Enter a whole number.");
+                    if (rl.Min is decimal mn && n < mn) return (false, null, $"Must be at least {mn:0.##}.");
+                    if (rl.Max is decimal mx && n > mx) return (false, null, $"Must be at most {mx:0.##}.");
+                    return (true, n, null);
+                }
             case "DECIMAL":
-            {
-                if (!decimal.TryParse(raw, NumberStyles.Number, CultureInfo.InvariantCulture, out var d)) return (false, null, "Enter a valid number.");
-                if (rl.Min is decimal mn && d < mn) return (false, null, $"Must be at least {mn:0.##}.");
-                if (rl.Max is decimal mx && d > mx) return (false, null, $"Must be at most {mx:0.##}.");
-                return (true, Math.Round(d, 2), null);
-            }
+                {
+                    if (!decimal.TryParse(raw, NumberStyles.Number, CultureInfo.InvariantCulture, out var d)) return (false, null, "Enter a valid number.");
+                    if (rl.Min is decimal mn && d < mn) return (false, null, $"Must be at least {mn:0.##}.");
+                    if (rl.Max is decimal mx && d > mx) return (false, null, $"Must be at most {mx:0.##}.");
+                    return (true, Math.Round(d, 2), null);
+                }
             case "DATE":
-            {
-                if (!DateTime.TryParseExact(raw, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt) || dt.Year < 1900 || dt.Year > 2100)
-                    return (false, null, "Enter a valid date.");
+                {
+                    if (!DateTime.TryParseExact(raw, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt) || dt.Year < 1900 || dt.Year > 2100)
+                        return (false, null, "Enter a valid date.");
 
-                var date = dt.Date;
-                var today = DateTime.Today;
-                if (rl.NoFuture == true && date > today) return (false, null, "Date cannot be in the future.");
-                if (rl.NoPast == true && date < today) return (false, null, "Date cannot be in the past.");
-                if (rl.MinAgeYears is int minAge && date > today.AddYears(-minAge)) return (false, null, $"Age must be at least {minAge} years.");
-                if (rl.MaxAgeYears is int maxAge && date < today.AddYears(-maxAge)) return (false, null, $"Age cannot be more than {maxAge} years.");
-                if (rl.MinDate != null && date < DateTime.ParseExact(rl.MinDate, "yyyy-MM-dd", CultureInfo.InvariantCulture)) return (false, null, $"Date must be on or after {rl.MinDate}.");
-                if (rl.MaxDate != null && date > DateTime.ParseExact(rl.MaxDate, "yyyy-MM-dd", CultureInfo.InvariantCulture)) return (false, null, $"Date must be on or before {rl.MaxDate}.");
-                return (true, date, null);
-            }
+                    var date = dt.Date;
+                    var today = DateTime.Today;
+                    if (rl.NoFuture == true && date > today) return (false, null, "Date cannot be in the future.");
+                    if (rl.NoPast == true && date < today) return (false, null, "Date cannot be in the past.");
+                    if (rl.MinAgeYears is int minAge && date > today.AddYears(-minAge)) return (false, null, $"Age must be at least {minAge} years.");
+                    if (rl.MaxAgeYears is int maxAge && date < today.AddYears(-maxAge)) return (false, null, $"Age cannot be more than {maxAge} years.");
+                    if (rl.MinDate != null && date < DateTime.ParseExact(rl.MinDate, "yyyy-MM-dd", CultureInfo.InvariantCulture)) return (false, null, $"Date must be on or after {rl.MinDate}.");
+                    if (rl.MaxDate != null && date > DateTime.ParseExact(rl.MaxDate, "yyyy-MM-dd", CultureInfo.InvariantCulture)) return (false, null, $"Date must be on or before {rl.MaxDate}.");
+                    return (true, date, null);
+                }
             case "BOOLEAN":
                 return raw is "true" or "1" ? (true, 1, null)
                     : raw is "false" or "0" ? (true, 0, null)
@@ -1086,25 +1151,25 @@ public class EmployeeMasterController : ControllerBase
                 return ParseOptions(f.OptionsJson).Any(o => o.Value == raw)
                     ? (true, raw, null) : (false, null, "Choose a value from the list.");
             case "LOOKUP":
-            {
-                if (!int.TryParse(raw, out var id) || f.LookupSource == null || !Lookup.TryGetValue(f.LookupSource, out var m)
-                    || await c.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM {m.Table} WHERE {m.IdCol}=@id", new { id }) == 0)
-                    return (false, null, "Choose a valid option.");
-                return (true, id, null);
-            }
+                {
+                    if (!int.TryParse(raw, out var id) || f.LookupSource == null || !Lookup.TryGetValue(f.LookupSource, out var m)
+                        || await c.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM {m.Table} WHERE {m.IdCol}=@id", new { id }) == 0)
+                        return (false, null, "Choose a valid option.");
+                    return (true, id, null);
+                }
             case "FILE":
-            {
-                var (fileId, fileName) = FileParts(raw);
-                fileName = fileName?.Trim();
-                if (fileId == null || !FileIdRx.IsMatch(fileId) || string.IsNullOrEmpty(fileName) || fileName.Length > 255)
-                    return (false, null, "Invalid file.");
+                {
+                    var (fileId, fileName) = FileParts(raw);
+                    fileName = fileName?.Trim();
+                    if (fileId == null || !FileIdRx.IsMatch(fileId) || string.IsNullOrEmpty(fileName) || fileName.Length > 255)
+                        return (false, null, "Invalid file.");
 
-                var ext = Path.GetExtension(fileName).TrimStart('.').ToLowerInvariant();
-                if (rl.Accept is { Count: > 0 } acc && !acc.Contains(ext))
-                    return (false, null, $"Only {string.Join(", ", acc)} files are allowed.");
+                    var ext = Path.GetExtension(fileName).TrimStart('.').ToLowerInvariant();
+                    if (rl.Accept is { Count: > 0 } acc && !acc.Contains(ext))
+                        return (false, null, $"Only {string.Join(", ", acc)} files are allowed.");
 
-                return (true, JsonSerializer.Serialize(new { fileId, fileName }), null);
-            }
+                    return (true, JsonSerializer.Serialize(new { fileId, fileName }), null);
+                }
         }
         return (false, null, "Unsupported field.");
     }
@@ -1225,10 +1290,12 @@ public class EmployeeMasterController : ControllerBase
 
     // ---- login accounts (create only) ----
 
-    private static async Task<List<(int RoleId, string Username, string Password)>> ValidateAccountsAsync(
+        // ---- login accounts ----
+
+    private static async Task<List<AccountPlan>> ValidateAccountsAsync(
         IDbConnection c, List<AccountInput>? input, bool canManage, bool isSuper, Dictionary<string, string> errors)
     {
-        var result = new List<(int RoleId, string Username, string Password)>();
+        var result = new List<AccountPlan>();
         if (input == null) return result;
 
         // rows left completely empty are ignored; indexes stay those of the form so errors land on the right row
@@ -1259,19 +1326,47 @@ public class EmployeeMasterController : ControllerBase
             else if (code!.Equals("SUPERADMIN", StringComparison.OrdinalIgnoreCase) && !isSuper) errors[$"{k}.roleId"] = "Only a super admin can grant this role.";
             else if (!seenRoles.Add(a.RoleId.Value)) errors[$"{k}.roleId"] = "Each role can be used only once per employee.";
 
+            // the plain employee role always logs in with the employee code (resolved when the employee is saved)
+            var useCode = code != null && code.Equals(EmployeeRoleCode, StringComparison.OrdinalIgnoreCase);
+
             var u = (a.Username ?? "").Trim();
-            if (!UsernameRx.IsMatch(u)) errors[$"{k}.username"] = "3–50 characters: letters, digits and . _ @ - only.";
-            else if (!seenUsers.Add(u)) errors[$"{k}.username"] = "This username is used twice in the form.";
-            else if (await c.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM user_accounts WHERE username=@u", new { u }) > 0)
-                errors[$"{k}.username"] = $"Username \"{u}\" is already taken.";
+            if (!useCode)
+            {
+                if (!UsernameRx.IsMatch(u)) errors[$"{k}.username"] = "3–50 characters: letters, digits and . _ @ - only.";
+                else if (!seenUsers.Add(u)) errors[$"{k}.username"] = "This username is used twice in the form.";
+                else if (await c.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM user_accounts WHERE username=@u", new { u }) > 0)
+                    errors[$"{k}.username"] = $"Username \"{u}\" is already taken.";
+            }
 
             var p = a.Password ?? "";
-            if (p.Length < 8) errors[$"{k}.password"] = "At least 8 characters.";
+            if (p.Length < MinPasswordLength) errors[$"{k}.password"] = $"At least {MinPasswordLength} characters.";
             else if (Encoding.UTF8.GetByteCount(p) > 72) errors[$"{k}.password"] = "Too long (maximum 72 bytes).";
 
-            if (errors.Count == before) result.Add((a.RoleId!.Value, u, p));
+            if (errors.Count == before) result.Add(new AccountPlan(i, a.RoleId!.Value, useCode ? null : u, p, useCode));
         }
         return result;
+    }
+
+    // Writes the logins inside the caller's transaction. Employee-role logins use the employee code as the username.
+    private static async Task InsertAccountsAsync(IDbConnection c, IDbTransaction tx, long employeeId, string employeeCode,
+        List<AccountPlan> plans, bool firstIsDefault)
+    {
+        for (var i = 0; i < plans.Count; i++)
+        {
+            var a = plans[i];
+            var username = a.UseEmployeeCode ? employeeCode : a.Username!;
+
+            if (a.UseEmployeeCode &&
+                await c.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM user_accounts WHERE username=@username", new { username }, tx) > 0)
+                throw new MasterException("Please fix the highlighted fields.", 422,
+                    new Dictionary<string, string> { [$"accounts.{a.Index}.username"] = $"The employee code \"{username}\" is already used as a login username." });
+
+            var hash = BCrypt.Net.BCrypt.HashPassword(a.Password, workFactor: 10);
+            await c.ExecuteAsync(
+                @"INSERT INTO user_accounts (employee_id, role_id, username, password_hash, is_default)
+                  VALUES (@employeeId, @roleId, @username, @hash, @isDefault)",
+                new { employeeId, roleId = a.RoleId, username, hash, isDefault = firstIsDefault && i == 0 ? 1 : 0 }, tx);
+        }
     }
 
     // =========================================================
@@ -1312,8 +1407,7 @@ public class EmployeeMasterController : ControllerBase
 
         var node = await ValidateOrgAsync(c, req.Organization, scope, errors);
         var effFrom = ParseOrgDate(req.Organization?.EffectiveFrom, errors) ?? DateTime.Today;
-        var accounts = await ValidateAccountsAsync(c, req.Accounts, CanManageAccounts(), IsSuperAdmin(), errors);
-
+        var accounts = await ValidateAccountsAsync(c, req.Accounts, await CanManageAccountsAsync(c), IsSuperAdmin(), errors);
         if (errors.Count > 0) throw new MasterException("Please fix the highlighted fields.", 422, errors);
 
         using var tx = c.BeginTransaction();
@@ -1355,15 +1449,7 @@ public class EmployeeMasterController : ControllerBase
         await InsertMappingAsync(c, tx, id, node!, effFrom, userId);
 
         // login accounts - same transaction, so an employee is never saved without the logins that were entered
-        for (var i = 0; i < accounts.Count; i++)
-        {
-            var a = accounts[i];
-            var hash = BCrypt.Net.BCrypt.HashPassword(a.Password, workFactor: 10);
-            await c.ExecuteAsync(
-                @"INSERT INTO user_accounts (employee_id, role_id, username, password_hash, is_default)
-                  VALUES (@id, @roleId, @username, @hash, @isDefault)",
-                new { id, roleId = a.RoleId, username = a.Username, hash, isDefault = i == 0 ? 1 : 0 }, tx);
-        }
+        await InsertAccountsAsync(c, tx, id, Convert.ToString(mainValues["employee_code"]) ?? "", accounts, firstIsDefault: true);
 
         await c.ExecuteAsync("INSERT INTO employee_audit_log (employee_id, action, changed_by) VALUES (@id,'CREATE',@userId)", new { id, userId }, tx);
 
@@ -1663,6 +1749,7 @@ public class EmployeeMasterController : ControllerBase
 
         if (q.DepartmentId.HasValue) { clauses.Add("e.department_id=@dept"); p.Add("dept", q.DepartmentId.Value); }
         if (q.DesignationId.HasValue) { clauses.Add("e.designation_id=@desig"); p.Add("desig", q.DesignationId.Value); }
+        if (q.OrgId.HasValue) { clauses.Add("m.organization_id=@org"); p.Add("org", q.OrgId.Value); }
         if (q.Status is "ACTIVE" or "INACTIVE") { clauses.Add("e.status=@status"); p.Add("status", q.Status); }
 
         from.Append("WHERE ").Append(string.Join(" AND ", clauses));
@@ -1692,7 +1779,8 @@ public class EmployeeMasterController : ControllerBase
             ["employee_code"] = new[] { "e.employee_code" },
             ["name"] = new[] { "e.first_name", "e.last_name" },
             ["status"] = new[] { "e.status" },
-            ["created_at"] = new[] { "e.created_at" }
+            ["created_at"] = new[] { "e.created_at" },
+            ["org"] = new[] { "n.display_order", "n.node_name", "e.employee_code" }
         };
         foreach (var f in listFields.Where(f => f.DataType is not ("LOOKUP" or "FILE")))
             sortable[$"f{f.Id}"] = new[] { $"{AliasOf(f)}.`{f.ColumnName}`" };

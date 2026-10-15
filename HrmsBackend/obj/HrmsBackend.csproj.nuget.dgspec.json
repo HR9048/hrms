@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\xampp\\htdocs\\proj\\hhrms\\hrms\\Hrmsbackend\\HrmsBackend.csproj": {}
+    "C:\\xampp\\htdocs\\proj\\hrms\\Hrmsbackend\\HrmsBackend.csproj": {}
   },
   "projects": {
-    "C:\\xampp\\htdocs\\proj\\hhrms\\hrms\\Hrmsbackend\\HrmsBackend.csproj": {
+    "C:\\xampp\\htdocs\\proj\\hrms\\Hrmsbackend\\HrmsBackend.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\xampp\\htdocs\\proj\\hhrms\\hrms\\Hrmsbackend\\HrmsBackend.csproj",
+        "projectUniqueName": "C:\\xampp\\htdocs\\proj\\hrms\\Hrmsbackend\\HrmsBackend.csproj",
         "projectName": "HrmsBackend",
-        "projectPath": "C:\\xampp\\htdocs\\proj\\hhrms\\hrms\\Hrmsbackend\\HrmsBackend.csproj",
+        "projectPath": "C:\\xampp\\htdocs\\proj\\hrms\\Hrmsbackend\\HrmsBackend.csproj",
         "packagesPath": "C:\\Users\\otpl-\\.nuget\\packages\\",
-        "outputPath": "C:\\xampp\\htdocs\\proj\\hhrms\\hrms\\Hrmsbackend\\obj\\",
+        "outputPath": "C:\\xampp\\htdocs\\proj\\hrms\\Hrmsbackend\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\otpl-\\AppData\\Roaming\\NuGet\\NuGet.Config"

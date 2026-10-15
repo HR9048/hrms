@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("HrmsBackend")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+61e114288e40dc3697b5e902815287bfd613230d")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6acf4e4b0896718a2c7cad2239d3fb4ff0e787de")]
 [assembly: System.Reflection.AssemblyProductAttribute("HrmsBackend")]
 [assembly: System.Reflection.AssemblyTitleAttribute("HrmsBackend")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -22,3 +22,6 @@ export const getEmployee = (id) => api.get(`${base}/employees/${id}`).then((r) =
 export const getEmployeeHistory = (id) => api.get(`${base}/employees/${id}/history`).then((r) => r.data);
 export const createEmployee = (body) => api.post(`${base}/employees`, body).then((r) => r.data);
 export const updateEmployee = (id, body) => api.put(`${base}/employees/${id}`, body).then((r) => r.data);
+
+export const getEmployeeAccounts = (id) => api.get(`${base}/employees/${id}/accounts`).then((r) => r.data);
+export const addEmployeeAccount = (id, body) => api.post(`${base}/employees/${id}/accounts`, body).then((r) => r.data);

@@ -7,11 +7,18 @@ import EmployeeAccounts from '../../components/EmployeeAccounts';
 import { getMaster, getLookups, getEmployee, getEmployeeHistory, createEmployee, updateEmployee } from '../../api/employeeMaster';
 import { uploadFile, deleteFile } from '../../api/files';
 import usePageAccess from '../../hooks/usePageAccess';
+import { DEFAULT_PASSWORD, MIN_PASSWORD, isEmployeeRole } from '../../utils/accountDefaults';
 
-const LIST_PATH = '/employee'; // adjust to your list route
+const LIST_PATH = '/employee/All'; // adjust to your list route
 const errMsg = (e) => e?.response?.data?.message || e?.message || 'Something went wrong.';
-const blankAccount = () => ({ roleId: '', username: '', password: '' });
-const touched = (a) => a.roleId || a.username.trim() || a.password;
+// the first row defaults to the Employee role; extra rows start without a role
+const makeAccount = (roles, first = false) => ({
+  roleId: first ? (roles.find(isEmployeeRole)?.id ?? '') : '',
+  username: '',
+  password: DEFAULT_PASSWORD
+});
+// the pre-filled default password alone doesn't make a row "filled in"
+const touched = (a) => a.roleId || a.username.trim();
 
 function emptyValues(sections) {
   const out = {};
@@ -43,7 +50,7 @@ export default function EmployeeCreate1() {
   const [master, setMaster] = useState(null);
   const [lookups, setLookups] = useState(null);
   const [values, setValues] = useState({});
-  const [accounts, setAccounts] = useState([blankAccount()]);
+  const [accounts, setAccounts] = useState([]);
   const [orgNodeId, setOrgNodeId] = useState(null);
   const [origNodeId, setOrigNodeId] = useState(null);
   const [origEffective, setOrigEffective] = useState(null);
@@ -98,7 +105,7 @@ export default function EmployeeCreate1() {
           setOrigNodeId(null);
           setOrigEffective(null);
         }
-        setAccounts([blankAccount()]);
+        setAccounts([makeAccount(l.roles, true)]);
         setEffectiveFrom(ymd(new Date()));
         setErrors({});
         setFormKey((k) => k + 1);
@@ -173,7 +180,7 @@ export default function EmployeeCreate1() {
     } else if (!editingId || orgChanged) {
       // the auto-selected root alone is not a real assignment while it has nodes below it
       const sel = lookups.nodes.find((n) => n.id === orgNodeId);
-      if (sel && sel.isRoot && lookups.nodes.some((n) => n.parentId === sel.id)) {
+      if (sel && sel.isRoot && !sel.isHome && lookups.nodes.some((n) => n.parentId === sel.id)) {
         clientErrors.organization = 'Select a node below the organization.';
       }
     }
@@ -181,9 +188,10 @@ export default function EmployeeCreate1() {
     if (!editingId && canManageAccounts) {
       accounts.forEach((a, i) => {
         if (!touched(a)) return;
-        if (!a.roleId) clientErrors[`accounts.${i}.roleId`] = 'Choose a role.';
-        if (!a.username.trim()) clientErrors[`accounts.${i}.username`] = 'Enter a username.';
-        if (a.password.length < 8) clientErrors[`accounts.${i}.password`] = 'At least 8 characters.';
+        const role = lookups.roles.find((r) => String(r.id) === String(a.roleId));
+        if (!role) clientErrors[`accounts.${i}.roleId`] = 'Choose a role.';
+        if (!isEmployeeRole(role) && !a.username.trim()) clientErrors[`accounts.${i}.username`] = 'Enter a username.';
+        if (a.password.length < MIN_PASSWORD) clientErrors[`accounts.${i}.password`] = `At least ${MIN_PASSWORD} characters.`;
       });
     }
 
@@ -225,7 +233,9 @@ export default function EmployeeCreate1() {
       } else {
         // every row is sent so server errors land on the same row; empty rows are ignored there
         const accountRows = canManageAccounts
-          ? accounts.map((a) => ({ roleId: a.roleId ? Number(a.roleId) : null, username: a.username.trim() || null, password: a.password || null }))
+          ? accounts.map((a) => (touched(a)
+            ? { roleId: a.roleId ? Number(a.roleId) : null, username: a.username.trim() || null, password: a.password || null }
+            : { roleId: null, username: null, password: null }))
           : [];
         await createEmployee({ ...body, accounts: accountRows });
       }
@@ -235,7 +245,7 @@ export default function EmployeeCreate1() {
 
       if (!editingId && addAnother) {
         setValues(emptyValues(sections));
-        setAccounts([blankAccount()]);
+        setAccounts([makeAccount(lookups.roles, true)]);
         setOrgNodeId(null);
         setErrors({});
         setFormKey((k) => k + 1);
@@ -365,41 +375,52 @@ export default function EmployeeCreate1() {
             <div className="mb-2">
               <div className="text-uppercase text-muted small fw-bold border-bottom mb-2 pb-1">Login account(s) <span className="text-lowercase fw-normal">(optional)</span></div>
               <p className="small text-muted">
-                One row per role. The first account is the default one at login; leave a row empty to skip it.
+                The Employee login uses the <b>employee code</b> as its username; other roles need a username. The pre-filled password is the
+                default initial password, so the employee should change it after the first login. Remove a row to skip that login.
               </p>
               {accErr && <div className="text-danger small mb-2">{accErr}</div>}
+              {accounts.length === 0 && <div className="small text-muted mb-2">No login will be created for this employee.</div>}
 
-              {accounts.map((a, i) => (
-                <div className="row g-2 mb-2" key={i}>
-                  <div className="col-md-3">
-                    <select className={`form-select ${errors[`accounts.${i}.roleId`] ? 'is-invalid' : ''}`} value={a.roleId} disabled={saving}
-                      onChange={(e) => setAccount(i, 'roleId', e.target.value)}>
-                      <option value="">Role…</option>
-                      {lookups.roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-                    </select>
-                    {errors[`accounts.${i}.roleId`] && <div className="text-danger small mt-1">{errors[`accounts.${i}.roleId`]}</div>}
-                  </div>
-                  <div className="col-md-4">
-                    <input className={`form-control ${errors[`accounts.${i}.username`] ? 'is-invalid' : ''}`} placeholder="Username" autoComplete="off"
-                      value={a.username} disabled={saving} onChange={(e) => setAccount(i, 'username', e.target.value)} />
-                    {errors[`accounts.${i}.username`] && <div className="text-danger small mt-1">{errors[`accounts.${i}.username`]}</div>}
-                  </div>
-                  <div className="col-md-4">
-                    <input type="password" className={`form-control ${errors[`accounts.${i}.password`] ? 'is-invalid' : ''}`} placeholder="Password (min 8)" autoComplete="new-password"
-                      value={a.password} disabled={saving} onChange={(e) => setAccount(i, 'password', e.target.value)} />
-                    {errors[`accounts.${i}.password`] && <div className="text-danger small mt-1">{errors[`accounts.${i}.password`]}</div>}
-                  </div>
-                  <div className="col-md-1">
-                    {accounts.length > 1 && (
+              {accounts.map((a, i) => {
+                const role = lookups.roles.find((r) => String(r.id) === String(a.roleId));
+                const usesCode = isEmployeeRole(role);
+                const codeText = codeMode === 'AUTO' ? 'Employee code (generated on save)' : values.basic?.employee_code || 'Employee code';
+                return (
+                  <div className="row g-2 mb-2" key={i}>
+                    <div className="col-md-3">
+                      <select className={`form-select ${errors[`accounts.${i}.roleId`] ? 'is-invalid' : ''}`} value={a.roleId} disabled={saving}
+                        onChange={(e) => setAccount(i, 'roleId', e.target.value)}>
+                        <option value="">Role…</option>
+                        {lookups.roles.map((r) => (
+                          <option key={r.id} value={r.id} disabled={accounts.some((x, xi) => xi !== i && String(x.roleId) === String(r.id))}>{r.name}</option>
+                        ))}
+                      </select>
+                      {errors[`accounts.${i}.roleId`] && <div className="text-danger small mt-1">{errors[`accounts.${i}.roleId`]}</div>}
+                    </div>
+                    <div className="col-md-4">
+                      {usesCode ? (
+                        <input className="form-control" value={codeText} disabled />
+                      ) : (
+                        <input className={`form-control ${errors[`accounts.${i}.username`] ? 'is-invalid' : ''}`} placeholder="Username" autoComplete="off"
+                          value={a.username} disabled={saving} onChange={(e) => setAccount(i, 'username', e.target.value)} />
+                      )}
+                      {errors[`accounts.${i}.username`] && <div className="text-danger small mt-1">{errors[`accounts.${i}.username`]}</div>}
+                    </div>
+                    <div className="col-md-4">
+                      <input className={`form-control ${errors[`accounts.${i}.password`] ? 'is-invalid' : ''}`} placeholder={`Password (min ${MIN_PASSWORD})`} autoComplete="off"
+                        value={a.password} disabled={saving} onChange={(e) => setAccount(i, 'password', e.target.value)} />
+                      {errors[`accounts.${i}.password`] && <div className="text-danger small mt-1">{errors[`accounts.${i}.password`]}</div>}
+                    </div>
+                    <div className="col-md-1">
                       <button type="button" className="btn btn-outline-danger" disabled={saving} onClick={() => setAccounts((p) => p.filter((_, idx) => idx !== i))}>
                         <i className="bi bi-x-lg" />
                       </button>
-                    )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
-              <button type="button" className="btn btn-link btn-sm p-0" disabled={saving} onClick={() => setAccounts((p) => [...p, blankAccount()])}>
+              <button type="button" className="btn btn-link btn-sm p-0" disabled={saving} onClick={() => setAccounts((p) => [...p, makeAccount(lookups.roles)])}>
                 + Add another account / role
               </button>
             </div>
@@ -411,14 +432,14 @@ export default function EmployeeCreate1() {
           {!editingId && canAdd && (
             <button type="button" className="btn btn-outline-primary" disabled={saving} onClick={(e) => submit(e, true)}>Save &amp; add another</button>
           )}
-          {canAdd || canEdit && (
+          {(editingId ? canEdit : canAdd) && (
             <button className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : editingId ? 'Update employee' : 'Save employee'}</button>
           )}
         </div>
       </form>
 
       {editingId && canManageAccounts && (
-        <EmployeeAccounts employeeId={editingId} roles={lookups.roles} canAdd={!!lookups.me?.isSuperAdmin} />
+        <EmployeeAccounts employeeId={editingId} employeeCode={values.basic?.employee_code} roles={lookups.roles} canAdd={canManageAccounts} />
       )}
 
       {editingId && (
