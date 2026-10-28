@@ -367,9 +367,12 @@ export default function EmployeeMasterSetup() {
     <div className="container-fluid py-3">
       <div className="d-flex align-items-center mb-3 gap-2">
         <h5 className="mb-0">Employee Master Setup</h5>
-        <button className="btn btn-primary btn-sm ms-auto" onClick={() => setSectionEdit('new')}>
-          <i className="bi bi-plus-lg me-1" />Add section
-        </button>
+        { !codeLocked && (
+          <button className="btn btn-primary btn-sm ms-auto" onClick={() => setSectionEdit('new')}>
+            <i className="bi bi-plus-lg me-1" />Add section
+          </button>
+        )}
+        { codeLocked && <span className="badge text-bg-danger ms-auto"><i className="bi bi-lock-fill me-1" />Employee Details is finalized</span> }
       </div>
 
       <div className="alert alert-light border small py-2">
