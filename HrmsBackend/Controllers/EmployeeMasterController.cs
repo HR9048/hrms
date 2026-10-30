@@ -35,6 +35,10 @@ public class EmployeeMasterController : ControllerBase
     private const string EmployeeRoleCode = "EMPLOYEE";
     private const int MinPasswordLength = 6;
 
+    // the employee master field that holds the profile picture (optional: if it doesn't exist, the profile shows initials)
+    private const string ProfilePhotoLabel = "Profile Photo";
+    private const string ProfilePhotoColumn = "cf_profile_photo";
+
     // menu_key of your Employee page in `menus`; null = any logged-in user may use the employee endpoints
     private static readonly string? EmployeeMenuKey = null;
 
@@ -51,6 +55,8 @@ public class EmployeeMasterController : ControllerBase
 
     private readonly DbConnectionFactory _db;
     private readonly FileStorageClient _files;
+
+    private record OwnDoc(string Section, string Label, string FileId, string FileName, bool IsPhoto);
 
     public EmployeeMasterController(DbConnectionFactory db, FileStorageClient files)
     {
@@ -420,6 +426,161 @@ public class EmployeeMasterController : ControllerBase
             return await ListEmployeesAsync(c, q, await ScopeAsync(c));
         });
 
+    // GET me - the logged-in employee's own profile (read-only, nothing outside their own record)
+    [HttpGet("me")]
+    public Task<IActionResult> MyProfile()
+        => Run(async c => await BuildMyProfileAsync(c, CurrentUserId()));
+
+    // GET me/files/{fileId}/link?download=true - signed link to one of the caller's OWN documents
+    [HttpGet("me/files/{fileId}/link")]
+    public Task<IActionResult> MyFileLink(string fileId, [FromQuery] bool download = false)
+        => Run(async c =>
+        {
+            var doc = (await LoadOwnDocsAsync(c, CurrentUserId())).FirstOrDefault(d => d.FileId == fileId)
+                ?? throw new MasterException("Document not found.", 404);
+
+            try
+            {
+                var signed = await _files.SignAsync(fileId, download, download ? doc.FileName : null);
+                return new { url = signed.url, expiresAt = signed.expiresAt };
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                throw new MasterException("The file is no longer available.", 404);
+            }
+            catch (HttpRequestException)
+            {
+                throw new MasterException("File storage service is unreachable.", 502);
+            }
+        });
+
+    // =========================================================
+    // MY PROFILE (the logged-in employee's own record, read-only)
+    // =========================================================
+
+    private static bool IsPhotoField(EmployeeField f) =>
+    f.DataType == "FILE" &&
+    (f.ColumnName == ProfilePhotoColumn || string.Equals(f.Label.Trim(), ProfilePhotoLabel, StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsImageName(string name) =>
+        new[] { "jpg", "jpeg", "png", "gif", "webp" }.Contains(Path.GetExtension(name).TrimStart('.').ToLowerInvariant());
+
+    // every uploaded document of one employee, across all finalized sections
+    private static async Task<List<OwnDoc>> LoadOwnDocsAsync(IDbConnection c, long employeeId)
+    {
+        var secs = (await GetSectionsAsync(c)).Where(s => s.IsFinalized == 1).ToList();
+        var fileFields = (await GetFieldsAsync(c)).Where(f => f.DataType == "FILE").ToList();
+
+        var docs = new List<OwnDoc>();
+        foreach (var s in secs)
+        {
+            var sf = fileFields.Where(f => f.SectionId == s.Id).ToList();
+            if (sf.Count == 0) continue;
+
+            var sql = s.IsMain == 1
+                ? "SELECT * FROM employee_master WHERE employee_id=@employeeId"
+                : $"SELECT * FROM `{s.TableName}` WHERE employee_id=@employeeId";
+            var row = await c.QueryFirstOrDefaultAsync(sql, new { employeeId }) as IDictionary<string, object>;
+            if (row == null) continue;
+
+            foreach (var f in sf)
+            {
+                row.TryGetValue(f.ColumnName, out var v);
+                var (fid, name) = FileParts(Convert.ToString(v));
+                if (fid != null) docs.Add(new OwnDoc(s.Title, f.Label, fid, string.IsNullOrEmpty(name) ? "File" : name, IsPhotoField(f)));
+            }
+        }
+        return docs;
+    }
+
+    private static async Task<string?> LookupNameAsync(IDbConnection c, EmployeeField f, object? v)
+    {
+        if (v == null || v is DBNull || f.LookupSource == null || !Lookup.TryGetValue(f.LookupSource, out var m)) return null;
+        return await c.ExecuteScalarAsync<string?>($"SELECT {m.NameCol} FROM {m.Table} WHERE {m.IdCol}=@id", new { id = Convert.ToInt32(v) });
+    }
+
+    private static async Task<object> BuildMyProfileAsync(IDbConnection c, long employeeId)
+    {
+        var main = await c.QueryFirstOrDefaultAsync("SELECT * FROM employee_master WHERE employee_id=@employeeId", new { employeeId }) as IDictionary<string, object>
+            ?? throw new MasterException("Your employee record was not found.", 404);
+
+        var secs = (await GetSectionsAsync(c)).Where(s => s.IsFinalized == 1).ToList();
+        var all = await GetFieldsAsync(c);
+
+        // details, one card per section (documents are listed separately)
+        var sections = new List<object>();
+        foreach (var s in secs)
+        {
+            var row = s.IsMain == 1
+                ? main
+                : await c.QueryFirstOrDefaultAsync($"SELECT * FROM `{s.TableName}` WHERE employee_id=@employeeId", new { employeeId }) as IDictionary<string, object>;
+
+            var items = new List<object>();
+            foreach (var f in all.Where(f => f.SectionId == s.Id && f.DataType != "FILE"))
+            {
+                object? v = null;
+                row?.TryGetValue(f.ColumnName, out v);
+                var text = f.DataType == "LOOKUP" ? await LookupNameAsync(c, f, v) : DisplayValue(f, v);
+                items.Add(new { label = f.Label, type = f.DataType, value = text });
+            }
+            if (items.Count > 0) sections.Add(new { key = s.SectionKey, title = s.Title, items });
+        }
+
+        // organization: the organization name plus one entry per level (Unit, Workplace ...), named after the node type
+        object? organization = null;
+        var map = await CurrentMappingAsync(c, employeeId);
+        if (map != null)
+        {
+            var look = await DataScope.OrgLookupsAsync(c, new DataScopeInfo { Unrestricted = true });
+            var byId = look.Nodes.ToDictionary(x => x.Id);
+            var typeName = look.NodeTypes.ToDictionary(x => x.Id, x => x.Name);
+
+            var chain = new List<ScopedNode>();
+            var cur = byId.TryGetValue(map.NodeId, out var start) ? start : null;
+            var guard = 0;
+            while (cur != null && guard++ < 50)
+            {
+                chain.Insert(0, cur);
+                cur = cur.ParentId != null && byId.TryGetValue(cur.ParentId.Value, out var up) ? up : null;
+            }
+
+            var levels = new List<object>();
+            foreach (var node in chain.Where(x => !x.IsRoot)) // the real root only repeats the organization name
+            {
+                var type = node.TypeId != null && typeName.TryGetValue(node.TypeId.Value, out var tn) ? tn : "Level";
+                levels.Add(new { type, name = node.Name });
+            }
+
+            organization = new
+            {
+                name = look.Organizations.FirstOrDefault(o => o.Id == map.OrganizationId)?.Name,
+                levels,
+                since = map.EffectiveFrom.ToString("yyyy-MM-dd")
+            };
+        }
+
+        var roles = (await c.QueryAsync<string>(@"
+            SELECT r.role_name FROM user_accounts ua JOIN roles r ON r.id = ua.role_id
+            WHERE ua.employee_id=@employeeId AND ua.is_active=1 ORDER BY ua.is_default DESC", new { employeeId })).ToList();
+
+        var docs = await LoadOwnDocsAsync(c, employeeId);
+        // the profile picture is shown at the top; used only when the field exists, has a file and that file is an image
+        var photoDoc = docs.FirstOrDefault(d => d.IsPhoto && IsImageName(d.FileName));
+
+        return new
+        {
+            employeeId,
+            employeeCode = Convert.ToString(main["employee_code"]),
+            firstName = Convert.ToString(main["first_name"]),
+            lastName = main.TryGetValue("last_name", out var ln) && ln != null ? Convert.ToString(ln) : null,
+            status = Convert.ToString(main["status"]),
+            organization,
+            sections,
+            photo = photoDoc == null ? null : new { fileId = photoDoc.FileId, fileName = photoDoc.FileName },
+            documents = docs.Where(d => d != photoDoc).Select(d => new { section = d.Section, label = d.Label, fileId = d.FileId, fileName = d.FileName }).ToList(),
+            roles
+        };
+    }
     [HttpGet("employees/export")]
     public Task<IActionResult> Export([FromQuery] ListQuery q)
         => Run(async c =>
@@ -1290,7 +1451,7 @@ public class EmployeeMasterController : ControllerBase
 
     // ---- login accounts (create only) ----
 
-        // ---- login accounts ----
+    // ---- login accounts ----
 
     private static async Task<List<AccountPlan>> ValidateAccountsAsync(
         IDbConnection c, List<AccountInput>? input, bool canManage, bool isSuper, Dictionary<string, string> errors)

@@ -11,12 +11,29 @@ const kindOf = (n) => {
 };
 
 // file = { fileId, type, url, storedFileName, originalFileName }
-export default function FilePreviewModal({ file, onClose }) {
+// getLink(fileId, download) is optional. Pages can pass their own link source, for example the "my profile"
+// page uses an endpoint that checks the file really belongs to the logged-in employee.
+export default function FilePreviewModal({ file, onClose, getLink }) {
   const [url, setUrl] = useState(null);
   const [error, setError] = useState(null);
 
   const name = file.originalFileName || file.storedFileName;
   const kind = kindOf(name);
+
+  async function handleDownload() {
+    if (!getLink) { downloadFile(file); return; }
+    try {
+      const { url: dl } = await getLink(file.fileId, true);
+      const a = document.createElement('a');
+      a.href = dl;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (err) {
+      setError(err?.response?.data?.message || err?.message || 'Download failed.');
+    }
+  }
 
   // Public files already have a permanent url; secure ones get a fresh signed link each time the modal opens.
   useEffect(() => {
@@ -26,14 +43,16 @@ export default function FilePreviewModal({ file, onClose }) {
 
     if (file.type === 'public') {
       setUrl(file.url);
-      return;
+      return undefined;
     }
-    getFileLink(file.fileId)
+
+    const request = getLink ? getLink(file.fileId, false) : getFileLink(file.fileId);
+    request
       .then((d) => !cancelled && setUrl(d.url))
       .catch((err) => !cancelled && setError(err?.response?.data?.message || err?.message || 'Unable to load file.'));
 
     return () => { cancelled = true; };
-  }, [file]);
+  }, [file]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Esc closes, and the page behind doesn't scroll while the modal is open
   useEffect(() => {
@@ -70,7 +89,7 @@ export default function FilePreviewModal({ file, onClose }) {
         <i className="bi bi-file-earmark fs-1 d-block mb-2" />
         Preview isn't available for this file type.
         <div className="mt-3">
-          <button className="btn btn-primary btn-sm" onClick={() => downloadFile(file)}>
+          <button className="btn btn-primary btn-sm" onClick={handleDownload}>
             <i className="bi bi-download me-1" />Download
           </button>
         </div>
@@ -95,7 +114,7 @@ export default function FilePreviewModal({ file, onClose }) {
                 >
                   <i className="bi bi-box-arrow-up-right" />
                 </button>
-                <button className="btn btn-sm btn-outline-secondary" onClick={() => downloadFile(file)} title="Download">
+                <button className="btn btn-sm btn-outline-secondary" onClick={handleDownload} title="Download">
                   <i className="bi bi-download" />
                 </button>
                 <button className="btn btn-sm btn-outline-dark" onClick={onClose} title="Close">

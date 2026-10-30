@@ -26,6 +26,7 @@ import FileUpload from './pages/Fileupload.jsx';
 import EmployeeCreate1 from './pages/Employee/EmployeeCreate1.jsx';
 import EmployeeMasterSetup from './pages/Employee/EmployeeMasterSetup.jsx';
 import EmployeeList from './pages/Employee/EmployeeList.jsx';
+import MyProfile from './pages/Employee/MyProfile.jsx';
 
 import RateLimitTest from './pages/RateLimitTest.jsx';
 
@@ -73,7 +74,7 @@ export default function App() {
         <Route path="employee/add" element={<ProtectedRoute><EmployeeCreate1 /></ProtectedRoute>} />
         <Route path="employee/All" element={<ProtectedRoute><EmployeeList /></ProtectedRoute>} />
         <Route path="employee/:id/edit" element={<ProtectedRoute><EmployeeCreate1 /></ProtectedRoute>} />
-        
+        <Route path="employee/my-profile" element={<ProtectedRoute><MyProfile /></ProtectedRoute>} />
         <Route path="admin/access-test" element={<AccessTest />} />
         <Route path="file-upload" element={<FileUpload />} />
         <Route path="*" element={<PlaceholderPage />} />
