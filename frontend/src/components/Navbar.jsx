@@ -8,6 +8,7 @@ import { useLanguage } from '../context/LanguageContext';
 import MenuItem from './MenuItem.jsx';
 import AccountSwitcher from './AccountSwitcher.jsx';
 import { AccessProvider } from '../context/AccessContext';
+import NotificationBell from './NotificationBell.jsx';
 import './Shell.css';
 
 const SB_MIN = 200;
@@ -302,6 +303,7 @@ export default function Navbar({ children }) {
         </div>
 
         <div className="hs-topbar-right">
+          <NotificationBell />
           {languages.length > 1 && (
             <label className="hs-lang-wrap" title="Language">
               <Globe size={15} className="hs-lang-icon" />

@@ -353,6 +353,8 @@ public class EmployeeMasterController : ControllerBase
         var roles = (await c.QueryAsync<RoleItem>("SELECT id AS Id, role_name AS Name, role_code AS Code FROM roles WHERE active=1 ORDER BY sequence, role_name")).ToList();
         if (!IsSuperAdmin()) roles = roles.Where(r => !r.Code.Equals("SUPERADMIN", StringComparison.OrdinalIgnoreCase)).ToList();
 
+        var transferActive = await c.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM tr_policy WHERE status='ACTIVE'") > 0;
+
         return new
         {
             departments = await c.QueryAsync<LookupItem>("SELECT id AS Id, dep_name AS Name, active AS Active FROM departments ORDER BY sequence, dep_name"),
@@ -361,6 +363,7 @@ public class EmployeeMasterController : ControllerBase
             nodeTypes = org.NodeTypes,
             nodes = org.Nodes,
             scope = org.Scope,
+            transferPolicyActive = transferActive,
             roles,
             me = new { canManageAccounts = await CanManageAccountsAsync(c), isSuperAdmin = IsSuperAdmin() }
         };
@@ -1660,6 +1663,9 @@ public class EmployeeMasterController : ControllerBase
         var node = await ValidateOrgAsync(c, req.Organization, scope, errors);
         var cur = await CurrentMappingAsync(c, id);
         var transfer = node != null && (cur == null || cur.NodeId != node.NodeId);
+
+        if (transfer && !IsSuperAdmin() && await c.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM tr_policy WHERE status='ACTIVE'") > 0)
+            errors["organization"] = "Organization changes are made through Transfers once a transfer policy is active.";
         DateTime effFrom = DateTime.Today;
         if (transfer)
         {

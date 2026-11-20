@@ -27,6 +27,13 @@ import EmployeeCreate1 from './pages/Employee/EmployeeCreate1.jsx';
 import EmployeeMasterSetup from './pages/Employee/EmployeeMasterSetup.jsx';
 import EmployeeList from './pages/Employee/EmployeeList.jsx';
 import MyProfile from './pages/Employee/MyProfile.jsx';
+import TransferPolicy from './pages/Transfers/TransferPolicy.jsx';
+import TransferWindows from './pages/Transfers/TransferWindows.jsx';
+import TransferVacancy from './pages/Transfers/TransferVacancy.jsx';
+import TransferList from "./pages/Transfers/Transferlist.jsx";
+import TransferNew from "./pages/Transfers/TransferNew.jsx";
+import TransferDetail from "./pages/Transfers/Transferdetail.jsx";
+import TransferRotation from "./pages/Transfers/Transferrotation.jsx";
 
 import RateLimitTest from './pages/RateLimitTest.jsx';
 
@@ -75,6 +82,14 @@ export default function App() {
         <Route path="employee/All" element={<ProtectedRoute><EmployeeList /></ProtectedRoute>} />
         <Route path="employee/:id/edit" element={<ProtectedRoute><EmployeeCreate1 /></ProtectedRoute>} />
         <Route path="employee/my-profile" element={<ProtectedRoute><MyProfile /></ProtectedRoute>} />
+        <Route path="admin/transfer-policy" element={<ProtectedRoute requiredRoles={['SUPERADMIN']}><TransferPolicy /></ProtectedRoute>} />
+        <Route path="transfers/windows" element={<ProtectedRoute><TransferWindows /></ProtectedRoute>} />
+        <Route path="transfers/vacancy" element={<ProtectedRoute><TransferVacancy /></ProtectedRoute>} />
+        <Route path="transfers/list" element={<ProtectedRoute><TransferList /></ProtectedRoute>} />
+        <Route path="transfers/new" element={<ProtectedRoute><TransferNew /></ProtectedRoute>} />
+        <Route path="transfers/:id" element={<ProtectedRoute><TransferDetail /></ProtectedRoute>} />
+        <Route path="transfers/rotation" element={<ProtectedRoute><TransferRotation /></ProtectedRoute>} />
+
         <Route path="admin/access-test" element={<AccessTest />} />
         <Route path="file-upload" element={<FileUpload />} />
         <Route path="*" element={<PlaceholderPage />} />

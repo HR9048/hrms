@@ -83,3 +83,9 @@ C:\xampp\htdocs\proj\hrms\Hrmsbackend\obj\Debug\net10.0\refint\HrmsBackend.dll
 C:\xampp\htdocs\proj\hrms\Hrmsbackend\obj\Debug\net10.0\HrmsBackend.pdb
 C:\xampp\htdocs\proj\hrms\Hrmsbackend\obj\Debug\net10.0\HrmsBackend.genruntimeconfig.cache
 C:\xampp\htdocs\proj\hrms\Hrmsbackend\obj\Debug\net10.0\ref\HrmsBackend.dll
+C:\xampp\htdocs\proj\hrms\Hrmsbackend\bin\Debug\net10.0\publish\web.config
+C:\xampp\htdocs\proj\hrms\Hrmsbackend\bin\Debug\net10.0\publish\appsettings.json
+C:\xampp\htdocs\proj\hrms\Hrmsbackend\bin\Debug\net10.0\publish\global.json
+C:\xampp\htdocs\proj\hrms\Hrmsbackend\bin\Debug\net10.0\publish\HrmsBackend.deps.json
+C:\xampp\htdocs\proj\hrms\Hrmsbackend\bin\Debug\net10.0\publish\HrmsBackend.runtimeconfig.json
+C:\xampp\htdocs\proj\hrms\Hrmsbackend\bin\Debug\net10.0\publish\HrmsBackend.staticwebassets.endpoints.json

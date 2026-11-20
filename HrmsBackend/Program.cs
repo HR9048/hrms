@@ -109,6 +109,8 @@ builder.Services.AddSingleton<TokenService>();
 builder.Services.AddSingleton<ApiRateLimitService>();
 builder.Services.AddHttpClient<FileStorageClient>();
 
+builder.Services.AddHostedService<TransferScheduler>();
+
 var jwtSecret = builder.Configuration["JWT_SECRET"]
     ?? throw new InvalidOperationException(
         "JWT_SECRET is required. Set it in appsettings.json or as an environment variable.");
