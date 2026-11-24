@@ -39,8 +39,6 @@ const toggle = (arr, v) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...a
 
 function ParamEditor({ rule, onChange, disabled }) {
   const p = rule.params || {};
-  const groups = Object.entries(p.byGroup || {});
-  const setGroups = (next) => onChange({ ...p, byGroup: Object.fromEntries(next.filter(([k]) => k !== '')) });
 
   if (rule.ruleKind === 'MUTUAL_MATCH') {
     return (
@@ -58,19 +56,6 @@ function ParamEditor({ rule, onChange, disabled }) {
           <input type="number" min="0" step="0.5" className="form-control form-control-sm" disabled={disabled} value={p[k] ?? ''} onChange={(e) => onChange({ ...p, [k]: e.target.value === '' ? '' : Number(e.target.value) })} />
         </F>
       ))}
-      {rule.ruleKind === 'MIN_TENURE' && (
-        <div className="col-12">
-          <label className="form-label small mb-1">Different years for specific employee groups (the group value stored in the employee master)</label>
-          {groups.map(([k, v], i) => (
-            <div className="d-flex gap-2 mb-1" key={i}>
-              <input className="form-control form-control-sm" style={{ maxWidth: 160 }} placeholder="Group value" disabled={disabled} value={k} onChange={(e) => setGroups(groups.map((g, gi) => (gi === i ? [e.target.value, g[1]] : g)))} />
-              <input type="number" min="0" step="0.5" className="form-control form-control-sm" style={{ maxWidth: 110 }} placeholder="Years" disabled={disabled} value={v} onChange={(e) => setGroups(groups.map((g, gi) => (gi === i ? [g[0], e.target.value === '' ? '' : Number(e.target.value)] : g)))} />
-              {!disabled && <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => setGroups(groups.filter((_, gi) => gi !== i))}><i className="bi bi-x" /></button>}
-            </div>
-          ))}
-          {!disabled && <button type="button" className="btn btn-sm btn-link p-0" onClick={() => setGroups([...groups, ['', 3]])}>+ Add a group</button>}
-        </div>
-      )}
     </div>
   );
 }
@@ -208,13 +193,25 @@ function PolicyEditor({ id, onBack }) {
                     <Check disabled={!draft} label="Type is on" checked={t.isEnabled} onChange={(v) => updType(i, { isEnabled: v })} />
                     {draft && <button className="btn btn-sm btn-outline-danger ms-auto" onClick={() => setTypes(types.filter((_, x) => x !== i))}><i className="bi bi-trash me-1" />Remove</button>}
                   </div>
+
+                  {t.initiatedBy !== 'EMPLOYEE' && (
+                    <div className="col-12 small">
+                      <b>Roles that can raise this:</b>{' '}
+                      {d.roles.map((r) => (
+                        <Check key={r.code} disabled={!draft} label={r.name}
+                          checked={(t.raiseRoles || []).includes(r.code)}
+                          onChange={() => updType(i, { raiseRoles: toggle(t.raiseRoles || [], r.code) })} />
+                      ))}
+                      <div className="text-muted">None ticked = any login that has Add on the New Transfer menu.</div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           ))}
           {draft && (
             <div className="d-flex gap-2">
-              <button className="btn btn-outline-primary btn-sm" onClick={() => setTypes([...types, { typeKey: '', name: '', procMode: 'INDIVIDUAL', initiatedBy: 'MANAGEMENT', needsConsent: false, needsCategory: false, vacancyCheck: 'NONE', deptChange: 'NONE', desigChange: 'NONE', seniorityEffect: 'RETAIN', applyOn: 'JOINING', isEnabled: true }])}>+ Add type</button>
+              <button className="btn btn-outline-primary btn-sm" onClick={() => setTypes([...types, { typeKey: '', name: '', procMode: 'INDIVIDUAL', initiatedBy: 'MANAGEMENT', raiseRoles: [], needsConsent: false, needsCategory: false, vacancyCheck: 'NONE', deptChange: 'NONE', desigChange: 'NONE', seniorityEffect: 'RETAIN', applyOn: 'JOINING', isEnabled: true }])}>+ Add type</button>
               <button className="btn btn-primary btn-sm ms-auto" disabled={busy} onClick={() => save('types', types)}>Save types</button>
             </div>
           )}

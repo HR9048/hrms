@@ -48,6 +48,29 @@ public class TransferController : TransferBase
     private static async Task<string?> LookupNameAsync(IDbConnection c, string table, string col, int? id) =>
         id == null ? null : await c.ExecuteScalarAsync<string?>($"SELECT {col} FROM {table} WHERE id=@id", new { id });
 
+    // Which transfer types this login may raise.
+    // - employee (no Add on /transfers/new): types started by EMPLOYEE or BOTH
+    // - management (Add on /transfers/new):   types started by MANAGEMENT or BOTH, limited to the roles ticked on the type
+    //   (no roles ticked = any management login; SUPERADMIN skips the role list)
+    private static (string[] Inits, string RoleSql) RaiseFilter(Actor me, bool canOthers) => (
+        canOthers ? new[] { "MANAGEMENT", "BOTH" } : new[] { "EMPLOYEE", "BOTH" },
+        canOthers && !me.Super ? " AND (raise_roles IS NULL OR raise_roles='' OR FIND_IN_SET(@role, raise_roles) > 0)" : "");
+
+    private static async Task AssertMayRaiseAsync(IDbConnection c, Actor me, string? typeKey, long employeeId, bool canOthers)
+    {
+        var policyId = await c.ExecuteScalarAsync<int?>("SELECT id FROM tr_policy WHERE status='ACTIVE' ORDER BY id DESC LIMIT 1");
+        var key = (typeKey ?? "").Trim().ToUpperInvariant();
+        if (policyId == null || await c.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM tr_type WHERE policy_id=@p AND type_key=@k", new { p = policyId, k = key }) == 0)
+            return; // PrepareAsync reports a missing policy or an unknown type
+
+        if (!canOthers && employeeId != me.Id) throw new TrException("You can raise a transfer only for yourself.", 403);
+
+        var (inits, roleSql) = RaiseFilter(me, canOthers);
+        var ok = await c.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM tr_type WHERE policy_id=@p AND type_key=@k AND initiated_by IN @inits{roleSql}",
+            new { p = policyId, k = key, inits, role = me.Role });
+        if (ok == 0) throw new TrException("You are not allowed to raise this type of transfer.", 403);
+    }
+
     // the people a request concerns: the employee(s) and whoever raised it
     private static IEnumerable<long> Parties(Req r) => new long[] { r.EmployeeId, r.Employee2Id ?? 0, r.CreatedBy }.Where(x => x > 0).Distinct();
 
@@ -142,6 +165,8 @@ public class TransferController : TransferBase
 
         var map = await CurrentMappingAsync(c, me.Id);
         var dest = await DataScope.OrgLookupsAsync(c, new DataScopeInfo { Unrestricted = true });
+        var canOthers = await MenuPermAsync(c, me, NewPageRoute, "can_add");
+        var (inits, roleSql) = RaiseFilter(me, canOthers);
         var now = DateTime.Now;
         var windows = (await c.QueryAsync<WindowRow>($"SELECT {WindowCols} FROM tr_window WHERE policy_id=@id AND status='PUBLISHED' AND apply_to >= NOW() ORDER BY apply_from", new { id = policy.Id }))
             .Select(w => new { w.Id, w.Name, w.TypeKey, w.ScopeNodeId, ApplyFrom = Dt(w.ApplyFrom), ApplyTo = Dt(w.ApplyTo), OpenNow = now >= w.ApplyFrom && now <= w.ApplyTo }).ToList();
@@ -149,14 +174,14 @@ public class TransferController : TransferBase
         return new
         {
             policy = new { policy.Id, policy.Name, policy.Version },
-            types = (await c.QueryAsync<TypeRow>($"SELECT {TypeCols} FROM tr_type WHERE policy_id=@id AND is_enabled=1 ORDER BY sort_order, id", new { id = policy.Id }))
+            types = (await c.QueryAsync<TypeRow>($"SELECT {TypeCols} FROM tr_type WHERE policy_id=@id AND is_enabled=1 AND initiated_by IN @inits{roleSql} ORDER BY sort_order, id", new { id = policy.Id, inits, role = me.Role }))
                 .Select(t => new { t.TypeKey, t.Name, t.ProcMode, t.InitiatedBy, NeedsConsent = t.NeedsConsent == 1, NeedsCategory = t.NeedsCategory == 1, t.VacancyCheck, t.DeptChange, t.DesigChange }).ToList(),
             categories = (await c.QueryAsync<CatRow>($"SELECT {CatCols} FROM tr_category WHERE policy_id=@id AND is_enabled=1 ORDER BY priority_rank, id", new { id = policy.Id }))
                 .Select(t => new { t.CategoryKey, t.Name, t.DocLabel }).ToList(),
             windows,
             departments = (await c.QueryAsync("SELECT id AS id, dep_name AS name FROM departments WHERE active=1 ORDER BY sequence, dep_name")).ToDictList(),
             designations = (await c.QueryAsync("SELECT id AS id, name AS name FROM designations WHERE active=1 ORDER BY sequence, name")).ToDictList(),
-            canRaiseForOthers = await MenuPermAsync(c, me, NewPageRoute, "can_add"),
+            canRaiseForOthers = canOthers,
             me = new { employeeId = me.Id, person = await PersonAsync(c, me.Id), path = map == null ? null : await NodePathAsync(c, map.NodeId) },
             destinations = new { organizations = dest.Organizations, nodeTypes = dest.NodeTypes, nodes = dest.Nodes }
         };
@@ -183,7 +208,9 @@ public class TransferController : TransferBase
     public Task<IActionResult> Check([FromBody] SubmitBody b) => Run(async c =>
     {
         var me = await ActorAsync(c);
-        var prep = await PrepareAsync(c, me, b, await MenuPermAsync(c, me, NewPageRoute, "can_add"));
+        var canOthers = await MenuPermAsync(c, me, NewPageRoute, "can_add");
+        await AssertMayRaiseAsync(c, me, b.TypeKey, b.EmployeeId, canOthers);
+        var prep = await PrepareAsync(c, me, b, canOthers);
         var temp = new Req { EmployeeId = (int)b.EmployeeId, Employee2Id = prep.PartnerId == null ? null : (int?)prep.PartnerId.Value, CreatedBy = me.Id };
 
         object? partner = null;
@@ -216,7 +243,9 @@ public class TransferController : TransferBase
     public Task<IActionResult> Submit([FromBody] SubmitBody b) => Run(async c =>
     {
         var me = await ActorAsync(c);
-        var prep = await PrepareAsync(c, me, b, await MenuPermAsync(c, me, NewPageRoute, "can_add"));
+        var canOthers = await MenuPermAsync(c, me, NewPageRoute, "can_add");
+        await AssertMayRaiseAsync(c, me, b.TypeKey, b.EmployeeId, canOthers);
+        var prep = await PrepareAsync(c, me, b, canOthers);
         var (reason, requested, docs) = ValidateSubmit(prep, b);
         return new { id = await InsertRequestAsync(c, me, prep, b, reason, requested, docs, "SUBMITTED") };
     });
@@ -738,12 +767,14 @@ public class TransferController : TransferBase
             }
         }
 
+        var (rInits, rRoleSql) = RaiseFilter(me, true);
+
         return new
         {
             policy = new { policy.Id, policy.Name },
             canRaise = await MenuPermAsync(c, me, RotationRoute, "can_add"),
             rows = result.Values.OrderByDescending(x => ((dynamic)x).overdue).ThenByDescending(x => ((dynamic)x).months).ToList(),
-            types = (await c.QueryAsync("SELECT type_key AS typeKey, name AS name, dept_change AS deptChange, desig_change AS desigChange FROM tr_type WHERE policy_id=@id AND proc_mode='INDIVIDUAL' AND is_enabled=1 AND needs_category=0 AND initiated_by IN ('MANAGEMENT','BOTH')", new { id = policy.Id })).ToDictList(),
+            types = (await c.QueryAsync($"SELECT type_key AS typeKey, name AS name, dept_change AS deptChange, desig_change AS desigChange FROM tr_type WHERE policy_id=@id AND proc_mode='INDIVIDUAL' AND is_enabled=1 AND needs_category=0 AND initiated_by IN @inits{rRoleSql}", new { id = policy.Id, inits = rInits, role = me.Role })).ToDictList(),
             departments = (await c.QueryAsync("SELECT id AS id, dep_name AS name FROM departments WHERE active=1 ORDER BY sequence, dep_name")).ToDictList(),
             designations = (await c.QueryAsync("SELECT id AS id, name AS name FROM designations WHERE active=1 ORDER BY sequence, name")).ToDictList(),
             destinations = await DataScope.OrgLookupsAsync(c, new DataScopeInfo { Unrestricted = true })
@@ -768,6 +799,7 @@ public class TransferController : TransferBase
         {
             try
             {
+                await AssertMayRaiseAsync(c, me, b.TypeKey, it.EmployeeId, true);
                 var body = new SubmitBody { EmployeeId = it.EmployeeId, TypeKey = b.TypeKey, ToNodeId = it.ToNodeId, ToDepartmentId = b.ToDepartmentId, ToDesignationId = b.ToDesignationId, Reason = reason };
                 var prep = await PrepareAsync(c, me, body, true);
                 if (prep.Type.ProcMode != "INDIVIDUAL" || prep.Type.NeedsCategory == 1) throw new TrException("This transfer type cannot be used for bulk rotation.");

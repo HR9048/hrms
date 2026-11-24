@@ -14,6 +14,7 @@ namespace HrmsBackend.Controllers;
 [ApiController]
 [Route("api/transfers")]
 [Authorize]
+
 public class TransferSetupController : TransferBase
 {
     private const string AdminRole = "SUPERADMIN";
@@ -22,7 +23,7 @@ public class TransferSetupController : TransferBase
 
     public TransferSetupController(DbConnectionFactory db) : base(db) { }
 
-    public record TypeInput(string TypeKey, string Name, string ProcMode, string InitiatedBy, bool NeedsConsent, bool NeedsCategory, string VacancyCheck, string DeptChange, string DesigChange, string SeniorityEffect, string ApplyOn, bool IsEnabled);
+    public record TypeInput(string TypeKey, string Name, string ProcMode, string InitiatedBy, bool NeedsConsent, bool NeedsCategory, string VacancyCheck, string DeptChange, string DesigChange, string SeniorityEffect, string ApplyOn, bool IsEnabled, List<string>? RaiseRoles = null);
     public record CategoryInput(string CategoryKey, string Name, int PriorityRank, string? DocLabel, bool WaivesVacancy, bool IsEnabled);
     public record RuleInput(string RuleKey, string Name, string RuleKind, JsonElement? Params, List<string>? AppliesTypes, List<string>? ExemptCategories, string Strength, string? RelaxRoleCode, bool IsEnabled);
     public record StepInput(string TypeKey, string Name, string Action, string Authority, List<string>? RoleCodes, List<long>? EmployeeIds, string Anchor);
@@ -100,12 +101,15 @@ public class TransferSetupController : TransferBase
         var p = await GetPolicyAsync(c, id);
         var steps = (await c.QueryAsync<StepRow>($"SELECT {PStepCols} FROM tr_step WHERE policy_id=@id ORDER BY type_key, step_order", new { id })).ToList();
         var empIds = steps.SelectMany(s => Csv(s.EmployeeIds)).Select(x => long.TryParse(x, out var v) ? v : 0).Where(x => x > 0).Distinct().ToList();
+        var raise = (await c.QueryAsync("SELECT type_key AS k, raise_roles AS r FROM tr_type WHERE policy_id=@id", new { id }))
+            .ToDictionary(x => (string)((IDictionary<string, object>)x)["k"], x => ((IDictionary<string, object>)x)["r"] as string);
 
         return new
         {
             policy = new { p.Id, p.Name, p.Version, p.Status, EffectiveFrom = p.EffectiveFrom?.ToString("yyyy-MM-dd"), p.Notes },
             types = (await c.QueryAsync<TypeRow>($"SELECT {TypeCols} FROM tr_type WHERE policy_id=@id ORDER BY sort_order, id", new { id }))
-                .Select(t => new { t.TypeKey, t.Name, t.ProcMode, t.InitiatedBy, NeedsConsent = t.NeedsConsent == 1, NeedsCategory = t.NeedsCategory == 1, t.VacancyCheck, t.DeptChange, t.DesigChange, t.SeniorityEffect, t.ApplyOn, IsEnabled = t.IsEnabled == 1 }).ToList(),
+                .Select(t => new { t.TypeKey, t.Name, t.ProcMode, t.InitiatedBy, NeedsConsent = t.NeedsConsent == 1, NeedsCategory = t.NeedsCategory == 1, t.VacancyCheck, t.DeptChange, t.DesigChange, t.SeniorityEffect, t.ApplyOn, IsEnabled = t.IsEnabled == 1,
+                    RaiseRoles = Csv(raise.GetValueOrDefault(t.TypeKey)) }).ToList(),
             categories = (await c.QueryAsync<CatRow>($"SELECT {CatCols} FROM tr_category WHERE policy_id=@id ORDER BY priority_rank, id", new { id }))
                 .Select(t => new { t.CategoryKey, t.Name, t.PriorityRank, t.DocLabel, WaivesVacancy = t.WaivesVacancy == 1, IsEnabled = t.IsEnabled == 1 }).ToList(),
             rules = (await c.QueryAsync<RuleRow>($"SELECT {RuleCols} FROM tr_rule WHERE policy_id=@id ORDER BY sort_order, id", new { id }))
@@ -175,7 +179,7 @@ public class TransferSetupController : TransferBase
             await c.ExecuteAsync("INSERT INTO tr_policy (name, version, status, notes, created_by) VALUES (@n,@v,'DRAFT',@notes,@by)", new { n = src.Name, v = version, notes = src.Notes, by }, tx);
             var nid = await c.ExecuteScalarAsync<int>("SELECT LAST_INSERT_ID()", transaction: tx);
             var p = new { n = nid, o = id };
-            await c.ExecuteAsync("INSERT INTO tr_type (policy_id,type_key,name,proc_mode,initiated_by,needs_consent,needs_category,vacancy_check,dept_change,desig_change,seniority_effect,apply_on,is_enabled,sort_order) SELECT @n,type_key,name,proc_mode,initiated_by,needs_consent,needs_category,vacancy_check,dept_change,desig_change,seniority_effect,apply_on,is_enabled,sort_order FROM tr_type WHERE policy_id=@o", p, tx);
+            await c.ExecuteAsync("INSERT INTO tr_type (policy_id,type_key,name,proc_mode,initiated_by,raise_roles,needs_consent,needs_category,vacancy_check,dept_change,desig_change,seniority_effect,apply_on,is_enabled,sort_order) SELECT @n,type_key,name,proc_mode,initiated_by,raise_roles,needs_consent,needs_category,vacancy_check,dept_change,desig_change,seniority_effect,apply_on,is_enabled,sort_order FROM tr_type WHERE policy_id=@o", p, tx);
             await c.ExecuteAsync("INSERT INTO tr_category (policy_id,category_key,name,priority_rank,doc_label,waives_vacancy,is_enabled) SELECT @n,category_key,name,priority_rank,doc_label,waives_vacancy,is_enabled FROM tr_category WHERE policy_id=@o", p, tx);
             await c.ExecuteAsync("INSERT INTO tr_rule (policy_id,rule_key,name,rule_kind,params_json,applies_types,exempt_categories,strength,relax_role_code,is_enabled,sort_order) SELECT @n,rule_key,name,rule_kind,params_json,applies_types,exempt_categories,strength,relax_role_code,is_enabled,sort_order FROM tr_rule WHERE policy_id=@o", p, tx);
             await c.ExecuteAsync("INSERT INTO tr_step (policy_id,type_key,step_order,name,action,authority,role_codes,employee_ids,anchor) SELECT @n,type_key,step_order,name,action,authority,role_codes,employee_ids,anchor FROM tr_step WHERE policy_id=@o", p, tx);
@@ -230,6 +234,7 @@ public class TransferSetupController : TransferBase
     public Task<IActionResult> SaveTypes(int id, [FromBody] List<TypeInput> body) => Run(async c =>
     {
         await AssertDraftAsync(c, id);
+        var roleCodes = (await c.QueryAsync<string>("SELECT role_code FROM roles WHERE active=1")).ToList();
         var seen = new HashSet<string>();
         var rows = new List<object>();
         var order = 0;
@@ -241,10 +246,21 @@ public class TransferSetupController : TransferBase
             if (name.Length is 0 or > 100) throw new TrException("Every type needs a name.");
             if (!Modes.Contains(t.ProcMode) || !Initiators.Contains(t.InitiatedBy) || !Vacancy.Contains(t.VacancyCheck) || !Changes.Contains(t.DeptChange) || !Changes.Contains(t.DesigChange) || !Seniority.Contains(t.SeniorityEffect) || !ApplyOn.Contains(t.ApplyOn))
                 throw new TrException($"Check the settings of \"{name}\".");
-            rows.Add(new { pid = id, key, name, mode = t.ProcMode, by = t.InitiatedBy, consent = t.NeedsConsent ? 1 : 0, cat = t.NeedsCategory ? 1 : 0, vac = t.VacancyCheck, dept = t.DeptChange, desig = t.DesigChange, sen = t.SeniorityEffect, app = t.ApplyOn, en = t.IsEnabled ? 1 : 0, ord = ++order * 10 });
+
+            // roles that may raise this type (only meaningful when management can start it)
+            string? raiseCsv = null;
+            if (t.InitiatedBy != "EMPLOYEE")
+            {
+                var picked = new List<string>();
+                foreach (var rc in (t.RaiseRoles ?? new()).Select(x => x.Trim()).Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase))
+                    picked.Add(roleCodes.FirstOrDefault(x => x.Equals(rc, StringComparison.OrdinalIgnoreCase)) ?? throw new TrException($"\"{name}\": the role \"{rc}\" does not exist."));
+                if (picked.Count > 0) raiseCsv = string.Join(",", picked);
+            }
+
+            rows.Add(new { pid = id, key, name, mode = t.ProcMode, by = t.InitiatedBy, raise = raiseCsv, consent = t.NeedsConsent ? 1 : 0, cat = t.NeedsCategory ? 1 : 0, vac = t.VacancyCheck, dept = t.DeptChange, desig = t.DesigChange, sen = t.SeniorityEffect, app = t.ApplyOn, en = t.IsEnabled ? 1 : 0, ord = ++order * 10 });
         }
         await ReplaceAsync(c, "tr_type", id,
-            "INSERT INTO tr_type (policy_id,type_key,name,proc_mode,initiated_by,needs_consent,needs_category,vacancy_check,dept_change,desig_change,seniority_effect,apply_on,is_enabled,sort_order) VALUES (@pid,@key,@name,@mode,@by,@consent,@cat,@vac,@dept,@desig,@sen,@app,@en,@ord)",
+            "INSERT INTO tr_type (policy_id,type_key,name,proc_mode,initiated_by,raise_roles,needs_consent,needs_category,vacancy_check,dept_change,desig_change,seniority_effect,apply_on,is_enabled,sort_order) VALUES (@pid,@key,@name,@mode,@by,@raise,@consent,@cat,@vac,@dept,@desig,@sen,@app,@en,@ord)",
             rows, tx => c.ExecuteAsync("DELETE FROM tr_step WHERE policy_id=@id AND type_key NOT IN @keys", new { id, keys = seen.ToList() }, tx));
         return new { message = "Saved." };
     });

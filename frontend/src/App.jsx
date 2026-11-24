@@ -82,7 +82,7 @@ export default function App() {
         <Route path="employee/All" element={<ProtectedRoute><EmployeeList /></ProtectedRoute>} />
         <Route path="employee/:id/edit" element={<ProtectedRoute><EmployeeCreate1 /></ProtectedRoute>} />
         <Route path="employee/my-profile" element={<ProtectedRoute><MyProfile /></ProtectedRoute>} />
-        <Route path="admin/transfer-policy" element={<ProtectedRoute requiredRoles={['SUPERADMIN']}><TransferPolicy /></ProtectedRoute>} />
+        <Route path="admin/transfer-policy" element={<ProtectedRoute><TransferPolicy /></ProtectedRoute>} />
         <Route path="transfers/windows" element={<ProtectedRoute><TransferWindows /></ProtectedRoute>} />
         <Route path="transfers/vacancy" element={<ProtectedRoute><TransferVacancy /></ProtectedRoute>} />
         <Route path="transfers/list" element={<ProtectedRoute><TransferList /></ProtectedRoute>} />
